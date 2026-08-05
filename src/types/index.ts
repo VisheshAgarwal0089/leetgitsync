@@ -20,6 +20,7 @@ export interface GitHubAuthState {
   deviceFlow: {
     user_code: string;
     verification_uri: string;
+    verification_uri_complete?: string;
     expires_in: number;
   } | null;
 }

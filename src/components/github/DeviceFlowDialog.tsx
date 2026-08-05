@@ -19,6 +19,9 @@ export function DeviceFlowDialog({ open, onClose }: DeviceFlowDialogProps) {
   useEffect(() => {
     if (!deviceFlow) return;
     setSecondsLeft(deviceFlow.expires_in);
+    if (deviceFlow.user_code) {
+      navigator.clipboard.writeText(deviceFlow.user_code).catch(() => {});
+    }
     const interval = setInterval(() => {
       setSecondsLeft((s) => Math.max(0, s - 1));
     }, 1000);
@@ -33,7 +36,7 @@ export function DeviceFlowDialog({ open, onClose }: DeviceFlowDialogProps) {
   }, [deviceFlow?.user_code]);
 
   const handleOpenVerification = useCallback(() => {
-    const url = deviceFlow?.verification_uri ?? 'https://github.com/login/device';
+    const url = deviceFlow?.verification_uri_complete || deviceFlow?.verification_uri || 'https://github.com/login/device';
     console.debug('[LeetGitSync Auth] opening GitHub verification URL', { url });
 
     if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
@@ -43,12 +46,18 @@ export function DeviceFlowDialog({ open, onClose }: DeviceFlowDialogProps) {
     } else {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
-  }, [deviceFlow?.verification_uri]);
+  }, [deviceFlow?.verification_uri_complete, deviceFlow?.verification_uri]);
 
   const handleCancel = async () => {
     await cancelGitHubAuth();
     onClose();
   };
+
+  useEffect(() => {
+    if (githubAuth.status === 'connected') {
+      onClose();
+    }
+  }, [githubAuth.status, onClose]);
 
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;
@@ -92,75 +101,83 @@ export function DeviceFlowDialog({ open, onClose }: DeviceFlowDialogProps) {
                 </div>
               </div>
 
-              {/* Steps */}
-              <div className="space-y-4">
-                {/* Step 1: Code */}
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Step 1 — Copy this code
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 px-4 py-3 rounded-xl bg-muted font-mono text-2xl font-bold tracking-[0.25em] text-center select-all">
-                      {deviceFlow?.user_code ?? '--------'}
+              {/* Content: Loading or Steps */}
+              {!deviceFlow ? (
+                <div className="flex flex-col items-center justify-center py-8 space-y-3">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm font-medium">Generating authorization code…</p>
+                  <p className="text-xs text-muted-foreground">Connecting to GitHub OAuth service</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Step 1: Code */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Step 1 — Copy this code
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 px-4 py-3 rounded-xl bg-muted font-mono text-2xl font-bold tracking-[0.25em] text-center select-all">
+                        {deviceFlow.user_code}
+                      </div>
+                      <button
+                        onClick={handleCopy}
+                        className="p-3 rounded-xl bg-muted hover:bg-muted/70 transition-colors"
+                        title="Copy code"
+                      >
+                        {copied ? (
+                          <Check className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <Copy className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </button>
                     </div>
-                    <button
-                      onClick={handleCopy}
-                      className="p-3 rounded-xl bg-muted hover:bg-muted/70 transition-colors"
-                      title="Copy code"
+                  </div>
+
+                  {/* Step 2: Visit URL */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Step 2 — Authorize on GitHub
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={handleOpenVerification}
+                      className="w-full gap-2 text-sm"
                     >
-                      {copied ? (
-                        <Check className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <Copy className="h-4 w-4 text-muted-foreground" />
+                      <ExternalLink className="h-4 w-4" />
+                      Open GitHub Authorization
+                    </Button>
+                    <p className="text-[11px] text-muted-foreground font-mono text-center truncate">
+                      {deviceFlow.verification_uri_complete || deviceFlow.verification_uri || 'github.com/login/device'}
+                    </p>
+                  </div>
+
+                  {/* Status */}
+                  <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-muted/50">
+                    <div className="flex items-center gap-2">
+                      {githubAuth.status === 'polling' && (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                          <span className="text-sm text-muted-foreground">Waiting for authorization…</span>
+                        </>
                       )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Step 2: Visit URL */}
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Step 2 — Authorize on GitHub
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleOpenVerification}
-                    className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-border hover:bg-muted transition-colors text-sm text-left"
-                  >
-                    <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-mono text-xs text-muted-foreground flex-1 truncate">
-                      {deviceFlow?.verification_uri ?? 'github.com/login/device'}
-                    </span>
-                    <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                  </button>
-                </div>
-
-                {/* Status */}
-                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-muted/50">
-                  <div className="flex items-center gap-2">
-                    {githubAuth.status === 'polling' && (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                        <span className="text-sm text-muted-foreground">Waiting for authorization…</span>
-                      </>
-                    )}
-                    {githubAuth.status === 'error' && (
-                      <>
-                        <XCircle className="h-4 w-4 text-destructive" />
-                        <span className="text-sm text-destructive truncate max-w-[180px]">
-                          {githubAuth.error}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  {!expiredOrDone && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {minutes}:{String(seconds).padStart(2, '0')}
+                      {githubAuth.status === 'error' && (
+                        <>
+                          <XCircle className="h-4 w-4 text-destructive" />
+                          <span className="text-sm text-destructive truncate max-w-[180px]">
+                            {githubAuth.error}
+                          </span>
+                        </>
+                      )}
                     </div>
-                  )}
+                    {!expiredOrDone && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        {minutes}:{String(seconds).padStart(2, '0')}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Footer */}
               <div className="flex gap-2 mt-5">

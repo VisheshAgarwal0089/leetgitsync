@@ -57,16 +57,23 @@ export interface GitHubBranch {
 // ─── Device Flow ──────────────────────────────────────────────────────────────
 
 export async function startDeviceFlow(): Promise<DeviceFlowInit> {
+  // GitHub's OAuth endpoints require application/x-www-form-urlencoded bodies.
+  // Sending JSON causes GitHub to silently ignore the parameters and return
+  // an error response with no device_code / user_code / verification_uri.
+  const body = new URLSearchParams({
+    client_id: GITHUB_CLIENT_ID,
+    scope: GITHUB_SCOPES,
+  });
+
   const res = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     headers: {
+      // Accept: application/json tells GitHub to respond with JSON (not form-encoded).
       Accept: 'application/json',
-      'Content-Type': 'application/json',
+      // Content-Type must be form-encoded for the request body GitHub reads.
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      scope: GITHUB_SCOPES,
-    }),
+    body: body.toString(),
   });
 
   if (!res.ok) {
@@ -79,7 +86,20 @@ export async function startDeviceFlow(): Promise<DeviceFlowInit> {
     throw new Error(data.error_description || data.error);
   }
 
-  return data as DeviceFlowInit;
+  if (!data.device_code || !data.user_code || !data.verification_uri) {
+    throw new Error(
+      `GitHub Device Flow response is missing required fields. Got: ${JSON.stringify(data)}`
+    );
+  }
+
+  return {
+    device_code: data.device_code,
+    user_code: data.user_code,
+    verification_uri: data.verification_uri,
+    verification_uri_complete: data.verification_uri_complete,
+    expires_in: data.expires_in,
+    interval: data.interval,
+  };
 }
 
 export async function pollForToken(
@@ -99,21 +119,23 @@ export async function pollForToken(
 
     if (signal.aborted) break;
 
-    const requestBody = {
+    const requestBody = new URLSearchParams({
       client_id: GITHUB_CLIENT_ID,
       device_code: deviceCode,
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-    };
+    });
 
-    console.debug('[LeetGitSync Auth] sending device-flow poll request', requestBody);
+    console.debug('[LeetGitSync Auth] sending device-flow poll request', Object.fromEntries(requestBody));
 
     const res = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: {
+        // Accept: application/json → GitHub responds with JSON instead of form-encoded.
         Accept: 'application/json',
-        'Content-Type': 'application/json',
+        // Content-Type must be form-encoded for GitHub's token endpoint.
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify(requestBody),
+      body: requestBody.toString(),
     });
 
     const responseText = await res.text();
@@ -177,6 +199,15 @@ export async function pollForToken(
 export async function getAuthenticatedUser(token: string): Promise<GitHubUser> {
   const res = await githubFetch('/user', token);
   return res as GitHubUser;
+}
+
+export async function verifyGitHubToken(token: string): Promise<{ valid: true; user: GitHubUser }> {
+  try {
+    const user = await getAuthenticatedUser(token);
+    return { valid: true, user };
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : 'Invalid GitHub token');
+  }
 }
 
 export async function listRepositories(token: string): Promise<GitHubRepo[]> {

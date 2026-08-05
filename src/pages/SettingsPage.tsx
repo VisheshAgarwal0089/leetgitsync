@@ -32,15 +32,23 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { GitHubConnectCard } from '@/components/github/GitHubConnectCard';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Check } from 'lucide-react';
 
 export function SettingsPage() {
   const { settings, setSettings, initGitHubAuth } = useAppStore();
+  const [saved, setSaved] = useState(false);
 
   // Restore GitHub session from chrome.storage.local on mount
   useEffect(() => {
     initGitHubAuth();
   }, [initGitHubAuth]);
+
+  const handleSave = () => {
+    setSettings(settings);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
 
   return (
     <div className="space-y-8 max-w-3xl">
@@ -49,9 +57,22 @@ export function SettingsPage() {
           title="Settings"
           description="Configure GitHub integration and sync preferences"
           actions={
-            <Button size="sm">
-              <Save className="h-4 w-4" />
-              Save Changes
+            <Button
+              size="sm"
+              onClick={handleSave}
+              className={saved ? 'bg-green-600 hover:bg-green-600 text-white transition-colors gap-2' : 'gap-2'}
+            >
+              {saved ? (
+                <>
+                  <Check className="h-4 w-4" />
+                  Saved!
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Save Changes
+                </>
+              )}
             </Button>
           }
         />

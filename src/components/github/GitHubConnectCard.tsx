@@ -268,12 +268,13 @@ function RepoSelector({ selectedRepo, onSelect, onCreateNew }: RepoSelectorProps
 // ─── Branch Selector ──────────────────────────────────────────────────────────
 
 interface BranchSelectorProps {
+  selectedRepo?: string;
   selectedBranch: string;
   onSelect: (branch: string) => void;
 }
 
-function BranchSelector({ selectedBranch, onSelect }: BranchSelectorProps) {
-  const { githubBranches, branchesLoading, branchesError } = useAppStore();
+function BranchSelector({ selectedRepo, selectedBranch, onSelect }: BranchSelectorProps) {
+  const { githubBranches, branchesLoading, branchesError, loadBranches } = useAppStore();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -281,10 +282,64 @@ function BranchSelector({ selectedBranch, onSelect }: BranchSelectorProps) {
     b.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (!githubBranches.length && !branchesLoading) {
+  // Auto-select first branch if none selected yet
+  useEffect(() => {
+    if (selectedRepo && githubBranches.length > 0 && !selectedBranch) {
+      const defaultB = githubBranches.find((b) => b.name === 'main' || b.name === 'master')?.name || githubBranches[0].name;
+      onSelect(defaultB);
+    }
+  }, [selectedRepo, githubBranches, selectedBranch, onSelect]);
+
+  if (!selectedRepo) {
     return (
       <div className="px-3 py-2.5 rounded-xl border border-dashed border-border text-sm text-muted-foreground text-center">
         Select a repository first
+      </div>
+    );
+  }
+
+  if (branchesLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-border text-sm text-muted-foreground bg-muted/30">
+        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        <span>Loading branches…</span>
+      </div>
+    );
+  }
+
+  if (branchesError) {
+    return (
+      <div className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-destructive/40 bg-destructive/5 text-sm text-destructive">
+        <span className="truncate max-w-[200px]">{branchesError}</span>
+        <button
+          type="button"
+          onClick={() => {
+            const [owner, repo] = selectedRepo.split('/');
+            if (owner && repo) loadBranches(owner, repo);
+          }}
+          className="text-xs font-medium underline shrink-0 ml-2"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!githubBranches.length) {
+    return (
+      <div className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-border text-sm text-muted-foreground">
+        <span>No branches loaded</span>
+        <button
+          type="button"
+          onClick={() => {
+            const [owner, repo] = selectedRepo.split('/');
+            if (owner && repo) loadBranches(owner, repo);
+          }}
+          className="text-xs text-primary font-medium hover:underline flex items-center gap-1 shrink-0"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Fetch Branches
+        </button>
       </div>
     );
   }
@@ -300,12 +355,7 @@ function BranchSelector({ selectedBranch, onSelect }: BranchSelectorProps) {
           open && 'ring-2 ring-ring bg-muted'
         )}
       >
-        {branchesLoading ? (
-          <span className="flex items-center gap-2 text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading branches…
-          </span>
-        ) : selectedBranch ? (
+        {selectedBranch ? (
           <span className="flex items-center gap-2">
             <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="font-mono">{selectedBranch}</span>
@@ -341,16 +391,9 @@ function BranchSelector({ selectedBranch, onSelect }: BranchSelectorProps) {
               </div>
             </div>
 
-            {branchesError && (
-              <div className="flex items-center gap-2 px-3 py-2 text-sm text-destructive">
-                <AlertCircle className="h-3.5 w-3.5" />
-                {branchesError}
-              </div>
-            )}
-
             <div className="max-h-44 overflow-y-auto">
               {filtered.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">No branches found</p>
+                <p className="text-sm text-muted-foreground text-center py-4">No matching branches</p>
               )}
               {filtered.map((branch) => (
                 <button
@@ -421,18 +464,24 @@ export function GitHubConnectCard() {
     }
   }, [isConnected, showDeviceFlow]);
 
-  // Load repos when first connected
+  // Load repos & branches when connected
   useEffect(() => {
     if (isConnected) {
       loadRepositories();
+      if (settings.defaultRepository) {
+        const [owner, repo] = settings.defaultRepository.split('/');
+        if (owner && repo) {
+          loadBranches(owner, repo);
+        }
+      }
     }
-  }, [isConnected]);
+  }, [isConnected, settings.defaultRepository]);
 
   const handleConnect = async () => {
     console.debug('[LeetGitSync Auth] connect button clicked in GitHub connect card');
     try {
-      await connectGitHub();
       setShowDeviceFlow(true);
+      await connectGitHub();
     } catch (error) {
       console.error('[LeetGitSync Auth] connect button handler failed', error);
     }
@@ -549,6 +598,7 @@ export function GitHubConnectCard() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Branch</label>
                 <BranchSelector
+                  selectedRepo={settings.defaultRepository}
                   selectedBranch={settings.defaultBranch}
                   onSelect={handleBranchSelect}
                 />

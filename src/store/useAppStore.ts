@@ -20,11 +20,15 @@ function registerBackgroundListeners() {
 
   backgroundListenersRegistered = true;
 
-  chrome.runtime.onMessage.addListener((message: { type?: string; user?: GitHubAuthState['user']; token?: string; error?: string }) => {
+  chrome.runtime.onMessage.addListener((message: { type?: string; user?: GitHubAuthState['user']; token?: string; error?: string; deviceFlow?: GitHubAuthState['deviceFlow'] & { device_code?: string; interval?: number; expires_in?: number } }) => {
     if (message?.type === 'GITHUB_AUTH_SUCCESS' && message.user && message.token) {
       useAppStore.getState().setGitHubAuthSuccess(message.user, message.token);
     } else if (message?.type === 'GITHUB_AUTH_ERROR') {
       useAppStore.getState().setGitHubAuthError(message.error ?? 'Unknown error');
+    } else if (message?.type === 'GITHUB_DEVICE_FLOW' && message.deviceFlow) {
+      // Background has obtained the device code — update the UI state so any
+      // open extension view (popup, dashboard) shows the user code.
+      useAppStore.getState().setDeviceFlowData(message.deviceFlow);
     }
   });
 }
@@ -64,6 +68,7 @@ import type {
   Problem,
 } from '@/types';
 import { getGitHubAuth, saveGitHubAuth, clearGitHubAuth } from '@/lib/storage';
+import type { DeviceFlowInit } from '@/lib/github';
 
 // ─── Message helpers ─────────────────────────────────────────────────────────
 
@@ -173,6 +178,7 @@ interface AppState {
   createRepository: (name: string, isPrivate: boolean, description: string) => Promise<GitHubRepo>;
   setGitHubAuthSuccess: (user: GitHubAuthState['user'], token: string) => void;
   setGitHubAuthError: (error: string) => void;
+  setDeviceFlowData: (deviceFlow: GitHubAuthState['deviceFlow'] & { device_code?: string; interval?: number }) => void;
 
   analytics: any;
   activity: any[];
@@ -399,6 +405,47 @@ export const useAppStore = create<AppState>()(
             return;
           }
 
+          // Check for a pending device flow that was started before this page opened.
+          // The background stores it in chrome.storage.local when auth begins.
+          try {
+            const stored = await new Promise<Record<string, unknown>>((resolve) => {
+              chrome.storage.local.get('githubsync-device-flow', (r) => resolve(r));
+            });
+            const pendingFlow = stored['githubsync-device-flow'] as (GitHubAuthState['deviceFlow'] & { device_code?: string; interval?: number }) | undefined;
+            if (pendingFlow?.user_code && pendingFlow.verification_uri) {
+              set({
+                githubAuth: {
+                  status: 'polling',
+                  token: null,
+                  user: null,
+                  error: null,
+                  deviceFlow: {
+                    user_code: pendingFlow.user_code,
+                    verification_uri: pendingFlow.verification_uri,
+                    verification_uri_complete: pendingFlow.verification_uri_complete,
+                    expires_in: pendingFlow.expires_in ?? 900,
+                  },
+                },
+              });
+              // Start the storage polling fallback so we pick up the token
+              // once the user authorizes on GitHub.
+              if (githubAuthPollingTimer === null) {
+                githubAuthPollingTimer = window.setInterval(() => {
+                  void (async () => {
+                    try {
+                      const auth = await getGitHubAuth();
+                      if (auth?.token && auth.user) {
+                        stopGitHubAuthPolling();
+                        get().setGitHubAuthSuccess(auth.user, auth.token);
+                      }
+                    } catch { /* ignore */ }
+                  })();
+                }, 2000);
+              }
+              return;
+            }
+          } catch { /* ignore */ }
+
           try {
             const auth = await sendBg<{ token: string; user: GitHubAuthState['user'] } | null>({
               type: 'GITHUB_GET_AUTH',
@@ -438,12 +485,7 @@ export const useAppStore = create<AppState>()(
 
         try {
           console.debug(`${AUTH_DEBUG_PREFIX} sending GITHUB_START_AUTH message to background worker`);
-          const deviceFlow = await sendBg<{
-            user_code: string;
-            verification_uri: string;
-            expires_in: number;
-            interval: number;
-          }>({ type: 'GITHUB_START_AUTH' });
+          const deviceFlow = await sendBg<DeviceFlowInit>({ type: 'GITHUB_START_AUTH' });
 
           console.debug(`${AUTH_DEBUG_PREFIX} background returned device flow`, deviceFlow);
           set({
@@ -455,6 +497,7 @@ export const useAppStore = create<AppState>()(
               deviceFlow: {
                 user_code: deviceFlow.user_code,
                 verification_uri: deviceFlow.verification_uri,
+                verification_uri_complete: deviceFlow.verification_uri_complete,
                 expires_in: deviceFlow.expires_in,
               },
             },
@@ -493,6 +536,10 @@ export const useAppStore = create<AppState>()(
       cancelGitHubAuth: async () => {
         stopGitHubAuthPolling();
         await sendBg({ type: 'GITHUB_CANCEL_AUTH' }).catch(() => {});
+        // Also clear any persisted device flow data
+        await new Promise<void>((resolve) => {
+          chrome.storage.local.remove('githubsync-device-flow', () => resolve());
+        }).catch(() => {});
         set({ githubAuth: initialGitHubAuth });
       },
 
@@ -542,6 +589,22 @@ export const useAppStore = create<AppState>()(
             error,
           },
         });
+      },
+
+      // Called when the background broadcasts GITHUB_DEVICE_FLOW
+      setDeviceFlowData: (deviceFlow) => {
+        set((state) => ({
+          githubAuth: {
+            ...state.githubAuth,
+            status: 'polling',
+            deviceFlow: {
+              user_code: deviceFlow.user_code ?? '',
+              verification_uri: deviceFlow.verification_uri ?? '',
+              verification_uri_complete: deviceFlow.verification_uri_complete,
+              expires_in: deviceFlow.expires_in ?? 900,
+            },
+          },
+        }));
       },
 
       // ── GitHub: repositories ──────────────────────────────────────────────

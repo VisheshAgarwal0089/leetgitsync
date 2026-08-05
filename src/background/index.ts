@@ -25,6 +25,8 @@ export type BgMessage =
   | { type: 'GITHUB_LIST_REPOS' }
   | { type: 'GITHUB_LIST_BRANCHES'; owner: string; repo: string }
   | { type: 'GITHUB_CREATE_REPO'; name: string; isPrivate: boolean; description: string }
+  | { type: 'GITHUB_CONNECT_PAT'; token: string }
+  | { type: 'GITHUB_VERIFY_TOKEN' }
   | { type: 'LEETCODE_SYNC_REQUEST'; data: any }
   | { type: 'LEETCODE_GET_PROFILE' }
   | { type: 'LEETCODE_IMPORT_HISTORY' }
@@ -37,14 +39,12 @@ export type BgResponse<T = unknown> =
 // Track ongoing auth so we can cancel it
 let authAbortController: AbortController | null = null;
 
-function notifyAuthState(type: 'GITHUB_AUTH_SUCCESS' | 'GITHUB_AUTH_ERROR', payload: Record<string, unknown>) {
+function notifyAuthState(type: 'GITHUB_AUTH_SUCCESS' | 'GITHUB_AUTH_ERROR' | 'GITHUB_DEVICE_FLOW', payload: Record<string, unknown>) {
   console.debug(`${AUTH_DEBUG_PREFIX} sending ${type} to extension pages`, payload);
+  // Broadcast to all extension views (popup, dashboard, etc.)
   chrome.runtime.sendMessage({ type, ...payload }, () => {
-    if (chrome.runtime.lastError) {
-      console.warn(`${AUTH_DEBUG_PREFIX} failed to deliver ${type}`, chrome.runtime.lastError.message);
-    } else {
-      console.debug(`${AUTH_DEBUG_PREFIX} delivered ${type} to extension pages`);
-    }
+    // Suppress "no listeners" error — the popup might not be open
+    void chrome.runtime.lastError;
   });
 }
 
@@ -126,21 +126,24 @@ async function handleStartAuth(): Promise<DeviceFlowInit> {
     const deviceFlow = await startDeviceFlow();
     console.debug(`${AUTH_DEBUG_PREFIX} step 2 -> device code received`, deviceFlow);
 
-    const verificationUrl = deviceFlow.verification_uri_complete || deviceFlow.verification_uri;
-    console.debug(`${AUTH_DEBUG_PREFIX} step 3 -> opening GitHub verification page`, { verificationUrl });
+    // ── Persist device flow so any extension page can read it on open ──────
+    await chrome.storage.local.set({ 'githubsync-device-flow': deviceFlow });
 
-    await new Promise<void>((resolve, reject) => {
-      chrome.tabs.create({ url: verificationUrl, active: true }, () => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        resolve();
-      });
+    // ── Broadcast to all currently-open extension views ────────────────────
+    // (popup, options/dashboard page, etc.)
+    notifyAuthState('GITHUB_DEVICE_FLOW', { deviceFlow });
+
+    // ── Open the GitHub authorization page automatically ───────────────────
+    // This ensures the user sees the authorization page even if the dialog
+    // isn't visible (e.g. when triggered from the extension popup).
+    const authUrl = deviceFlow.verification_uri_complete || deviceFlow.verification_uri;
+    console.debug(`${AUTH_DEBUG_PREFIX} step 3 -> opening GitHub authorization tab`, { authUrl });
+    chrome.tabs.create({ url: authUrl }).catch((e) => {
+      console.warn(`${AUTH_DEBUG_PREFIX} could not open auth tab`, e);
     });
 
-    console.debug(`${AUTH_DEBUG_PREFIX} step 4 -> verification page opened; starting polling loop`);
-
+    // ── Start polling in the background ───────────────────────────────────
+    console.debug(`${AUTH_DEBUG_PREFIX} step 4 -> starting polling loop`);
     (async () => {
       try {
         const tokenResponse = await pollForToken(deviceFlow.device_code, deviceFlow.interval, signal);
@@ -155,6 +158,9 @@ async function handleStartAuth(): Promise<DeviceFlowInit> {
         console.debug(`${AUTH_DEBUG_PREFIX} step 6 -> storing GitHub credentials in extension storage`);
         await saveGitHubAuth(tokenResponse.access_token, user);
 
+        // Clear the pending device flow data now that auth is complete
+        await chrome.storage.local.remove('githubsync-device-flow');
+
         console.debug(`${AUTH_DEBUG_PREFIX} step 7 -> notifying popup/dashboard that auth completed`);
         notifyAuthState('GITHUB_AUTH_SUCCESS', {
           user,
@@ -167,6 +173,7 @@ async function handleStartAuth(): Promise<DeviceFlowInit> {
         }
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`${AUTH_DEBUG_PREFIX} auth flow failed`, msg);
+        await chrome.storage.local.remove('githubsync-device-flow');
         notifyAuthState('GITHUB_AUTH_ERROR', { error: msg });
       } finally {
         authAbortController = null;
@@ -178,6 +185,7 @@ async function handleStartAuth(): Promise<DeviceFlowInit> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`${AUTH_DEBUG_PREFIX} device flow initialization failed`, msg);
+    await chrome.storage.local.remove('githubsync-device-flow').catch(() => {});
     notifyAuthState('GITHUB_AUTH_ERROR', { error: msg });
     throw err;
   }
