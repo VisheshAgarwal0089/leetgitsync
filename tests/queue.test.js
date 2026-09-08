@@ -37,7 +37,8 @@ test('new capture creates one durable queued job and duplicate capture creates n
   assert.equal(f.data[keys.queue][0].status, 'queued');
   assert.equal(f.data[keys.queue][0].repository, 'owner/repo@main');
   assert.deepEqual(f.data[keys.queue][0].target, config);
-  assert.ok(f.alarms.has('sync-queue'));
+  assert.equal(f.alarms.has('sync-queue'), false);
+  assert.equal(f.data[keys.queueControl].reason, 'unauthenticated');
 });
 
 test('unconfigured captures stay queued without scheduling a writer', async () => {
@@ -56,7 +57,7 @@ test('queue capacity never evicts an active synchronization job', () => {
   assert.throws(() => enqueue(queue, record(999), config, time), (error) => error.code === 'QUEUE_FULL');
   const withTerminal = queue.map((job, index) => index === 0 ? { ...job, status: 'synced' } : job);
   const result = enqueue(withTerminal, record(999), config, time);
-  assert.equal(result.queue.length, MAX_QUEUE_JOBS); assert.equal(result.queue.at(-1).id, '999');
+  assert.equal(result.queue.length, MAX_QUEUE_JOBS + 1); assert.equal(result.queue.at(-1).id, '999');
   assert.equal(bindUnassignedJobs([{ ...queue[0], repository: null }], config, time)[0].repository, 'owner/repo@main');
   const legacy = { ...queue[0] }; delete legacy.target;
   assert.deepEqual(bindUnassignedJobs([legacy], config, time)[0].target, config);
@@ -110,8 +111,8 @@ test('automatic retries stop after the sixth failed attempt', async () => {
 });
 
 test('rate-limit retry time is respected and terminal errors fail without leaking details', async () => {
-  assert.deepEqual(classifySyncError({ status: 429, retryAt: time + 90_000 }), { retryable: true, message: 'GitHub rate limit reached.', retryAt: time + 90_000 });
-  assert.deepEqual(classifySyncError({ code: 'AUTH_EXPIRED', message: 'token-value' }), { retryable: false, message: 'GitHub authentication is required.' });
+  assert.deepEqual(classifySyncError({ status: 429, retryAt: time + 90_000 }), { retryable: true, blocked: 'rate_limited', message: 'GitHub rate limit reached.', retryAt: time + 90_000 });
+  assert.deepEqual(classifySyncError({ code: 'AUTH_EXPIRED', message: 'token-value' }), { retryable: true, blocked: 'authentication_expired', message: 'GitHub authentication expired. Reconnect to resume.' });
   assert.equal(classifySyncError({ code: 'RATE_LIMITED', status: 403 }).retryable, true);
   assert.equal(classifySyncError({ status: 409 }).retryable, true);
   let queue = enqueue([], record(1), config, time).queue;

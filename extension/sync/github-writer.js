@@ -36,9 +36,14 @@ function repositoryBase(target) {
   return `/repos/${strictEncode(target.owner)}/${strictEncode(target.repository)}`;
 }
 
-function retryAt(response) {
+export function retryAt(response, now = Date.now()) {
   const reset = Number(response.headers.get('x-ratelimit-reset'));
-  return Number.isFinite(reset) && reset > 0 ? reset * 1000 : null;
+  if (Number.isFinite(reset) && reset > 0) return reset * 1000;
+  const retryAfter = response.headers.get('retry-after');
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) return now + seconds * 1000;
+  const date = Date.parse(retryAfter);
+  return Number.isFinite(date) && date > now ? date : null;
 }
 
 function responseError(response, context) {

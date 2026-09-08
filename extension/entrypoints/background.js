@@ -20,5 +20,6 @@ export default defineBackground(() => {
   });
   platform.runtime.onStartup.addListener(() => { void service.resume().catch(() => {}); });
   platform.runtime.onInstalled.addListener(() => { void service.resume().catch(() => {}); });
+  globalThis.addEventListener?.('online', () => { void service.processQueue().catch(() => {}); });
   void service.resume().catch(() => {});
 });

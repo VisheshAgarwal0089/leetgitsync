@@ -1,33 +1,11 @@
-import { keys } from './storage.js';
+import { DIAGNOSTIC_STAGES, keys, STORAGE_LIMITS } from './storage.js';
 
 export const DIAGNOSTIC_MESSAGE = 'LEETGITSYNC_DIAGNOSTIC';
 export const DIAGNOSTIC_EVENT = 'LEETGITSYNC_DIAGNOSTIC_V1';
 export const BRIDGE_EVENT = 'LEETGITSYNC_BRIDGE_V1';
 export const BRIDGE_READY_EVENT = 'LEETGITSYNC_BRIDGE_READY_V1';
-export const DIAGNOSTIC_LIMIT = 30;
+export const DIAGNOSTIC_LIMIT = STORAGE_LIMITS.diagnostics;
 
-const stages = new Set([
-  'CONTENT_SCRIPT_LOADED',
-  'PAGE_OBSERVER_READY',
-  'BRIDGE_CONNECTED',
-  'FETCH_INTERCEPTED',
-  'SUBMIT_CONTEXT_STORED',
-  'RESULT_RESOURCE_DETECTED',
-  'FALLBACK_OBSERVER_READY',
-  'SUBMISSION_LOOKUP_STARTED',
-  'SUBMISSION_LOOKUP_PENDING',
-  'SUBMISSION_LOOKUP_REJECTED',
-  'SUBMISSION_CODE_FETCHED',
-  'SUBMISSION_RESPONSE_DETECTED',
-  'STATUS_NORMALIZED',
-  'METADATA_EXTRACTED',
-  'METADATA_FAILED',
-  'CAPTURE_MESSAGE_SENT',
-  'BACKGROUND_MESSAGE_RECEIVED',
-  'CAPTURE_PERSISTED',
-  'QUEUE_JOB_CREATED',
-  'DIAGNOSTIC_ERROR',
-]);
 const fields = new Set(['submissionId', 'problemNumber', 'problemTitle', 'problemSlug', 'sourceCode', 'language', 'submittedAt']);
 
 function safeText(value, pattern, maxLength) {
@@ -39,7 +17,7 @@ function safeText(value, pattern, maxLength) {
 // Only allow fixed status data into storage. Never persist page payloads,
 // exception messages, source code, credentials, or request headers here.
 export function normalizeDiagnostic(value, at = new Date().toISOString()) {
-  const stage = stages.has(value?.stage) ? value.stage : null;
+  const stage = DIAGNOSTIC_STAGES.has(value?.stage) ? value.stage : null;
   if (!stage) return null;
   const diagnostic = { stage, at: new Date(at).toISOString() };
   const slug = safeText(value?.slug, /^[a-z0-9]+(?:-[a-z0-9]+)*$/, 200);
