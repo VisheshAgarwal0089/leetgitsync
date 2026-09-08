@@ -37,7 +37,7 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      matches: ['*://leetcode.com/problems/*'],
+      matches: ['*://leetcode.com/*'],
       js: ['src/content/index.ts'],
     },
   ],

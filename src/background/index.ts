@@ -2,6 +2,7 @@
 // Runs persistently in MV3 service worker context with full network access.
 
 const AUTH_DEBUG_PREFIX = '[LeetGitSync Auth]';
+console.log('[LGS Debug] Background service worker loaded');
 
 import {
   startDeviceFlow,
@@ -58,8 +59,12 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onMessage.addListener(
   (message: BgMessage, _sender, sendResponse: (r: BgResponse) => void) => {
+    console.log('[LGS Debug] BG received message:', message?.type, message);
     handleMessage(message)
-      .then((data) => sendResponse({ success: true, data }))
+      .then((data) => {
+        console.log('[LGS Debug] BG sending success response:', message?.type);
+        sendResponse({ success: true, data });
+      })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[LeetGitSync] BG error:', msg);
@@ -225,99 +230,100 @@ async function handleCreateRepo(name: string, isPrivate: boolean, description: s
   return repo;
 }
 
+const LGS_PROFILE_STORAGE_KEY = 'lgs-leetcode-profile';
+const LGS_HISTORY_STORAGE_KEY = 'lgs-leetcode-history';
+
 async function handleLeetCodeProfile() {
+  console.log('[LGS Debug] handleLeetCodeProfile called');
+
+  // 1. Check if the content script has already stored a profile
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      const response = await chrome.tabs.sendMessage(tab.id, { type: 'LEETCODE_GET_PROFILE' });
-      if (response?.success && response.data) {
-        return {
-          ...response.data,
-          connected: Boolean(response.data.username),
-        };
+    const stored = await new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.local.get(LGS_PROFILE_STORAGE_KEY, (r) => resolve(r));
+    });
+    const cached = stored[LGS_PROFILE_STORAGE_KEY] as { username?: string | null; connected?: boolean } | undefined;
+    console.log('[LGS Debug] Storage check:', cached);
+    if (cached?.username && cached?.connected) {
+      console.log('[LGS Debug] Returning cached profile:', cached.username);
+      return {
+        username: cached.username,
+        displayName: cached.username,
+        connected: true,
+        message: `LeetCode profile detected: ${cached.username}`,
+      };
+    }
+  } catch (e) {
+    console.warn('[LGS Debug] Storage read failed:', e);
+  }
+
+  // 2. No cached profile — ask the content script on any open LeetCode tab
+  console.log('[LGS Debug] No cached profile, trying to message content script...');
+  try {
+    const tabs = await chrome.tabs.query({ url: ['https://leetcode.com/*', 'https://*.leetcode.com/*'] });
+    console.log('[LGS Debug] Found LeetCode tabs:', tabs.length);
+    for (const tab of tabs) {
+      console.log('[LGS Debug] Trying tab:', tab.id, tab.url);
+      if (tab?.id && tab.url && /leetcode\.com/.test(tab.url)) {
+        try {
+          const response = await chrome.tabs.sendMessage(tab.id, { type: 'LEETCODE_GET_PROFILE' });
+          console.log('[LGS Debug] Content script response:', response);
+          if (response?.success && response.data) {
+            return {
+              ...response.data,
+              connected: Boolean(response.data.username),
+            };
+          }
+        } catch (e) {
+          console.warn('[LGS Debug] Failed to message tab:', tab.id, e);
+        }
       }
     }
-  } catch {
-    // Fall back to the generic GraphQL lookup if the content script is unavailable.
+  } catch (e) {
+    console.warn('[LGS Debug] Tabs query failed:', e);
   }
 
-  try {
-    const response = await fetch('https://leetcode.com/graphql/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: `query userStatus {
-          matchedUser(username: "") {
-            username
-            profile {
-              realName
-            }
-          }
-        }`,
-      }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-    const username = data?.data?.matchedUser?.username || null;
-    const displayName = data?.data?.matchedUser?.profile?.realName || username || null;
-
-    return {
-      username,
-      displayName,
-      connected: Boolean(username),
-      message: username ? 'LeetCode profile detected.' : 'LeetCode profile unavailable from this environment.',
-    };
-  } catch {
-    return {
-      username: null,
-      displayName: null,
-      connected: false,
-      message: 'Unable to resolve LeetCode profile.',
-    };
-  }
+  console.log('[LGS Debug] No profile found anywhere');
+  return {
+    username: null,
+    displayName: null,
+    connected: false,
+    message: 'No LeetCode tab found. Please open a LeetCode page and try again.',
+  };
 }
 
 async function handleLeetCodeImportHistory() {
+  // 1. Check if the content script has already stored history
   try {
-    const profile = await handleLeetCodeProfile();
-    if (!profile.connected) {
-      return [];
-    }
-
-    const history = await fetch('https://leetcode.com/graphql/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: `query userSolvedProblems($username: String!) {
-          matchedUser(username: $username) {
-            submitStatsGlobal {
-              acSubmissionNum {
-                difficulty
-                count
-                submissions
-              }
-            }
-          }
-        }`,
-        variables: { username: profile.username },
-      }),
+    const stored = await new Promise<Record<string, unknown>>((resolve) => {
+      chrome.storage.local.get(LGS_HISTORY_STORAGE_KEY, (r) => resolve(r));
     });
-
-    const data = await history.json().catch(() => ({}));
-    const stats = data?.data?.matchedUser?.submitStatsGlobal?.acSubmissionNum || [];
-
-    return stats.map((entry: any, index: number) => ({
-      id: `imported-${index}`,
-      title: entry.difficulty || 'Accepted problem',
-      slug: entry.difficulty?.toLowerCase() || 'accepted-problem',
-      difficulty: entry.difficulty === 'Hard' ? 'Hard' : entry.difficulty === 'Medium' ? 'Medium' : 'Easy',
-      tags: ['Imported'],
-      acceptanceRate: 0,
-      solvedAt: new Date().toISOString(),
-    }));
+    const cached = stored[LGS_HISTORY_STORAGE_KEY];
+    if (Array.isArray(cached) && cached.length > 0) {
+      return cached;
+    }
   } catch {
-    return [];
+    // Ignore storage errors.
   }
+
+  // 2. No cached history — ask the content script to fetch and store it
+  try {
+    const tabs = await chrome.tabs.query({ url: ['https://leetcode.com/*', 'https://*.leetcode.com/*'] });
+    for (const tab of tabs) {
+      if (tab?.id && tab.url && /leetcode\.com/.test(tab.url)) {
+        try {
+          const response = await chrome.tabs.sendMessage(tab.id, { type: 'LEETCODE_IMPORT_HISTORY' });
+          if (response?.success && Array.isArray(response.data)) {
+            return response.data;
+          }
+        } catch {
+          // This tab's content script may not be ready; try the next tab.
+        }
+      }
+    }
+  } catch {
+    // No LeetCode tabs found.
+  }
+  return [];
 }
 
 async function handleAppGetState() {

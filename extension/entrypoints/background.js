@@ -1,0 +1,24 @@
+import { defineBackground } from 'wxt/utils/define-background';
+import { platform, isExtensionPage, isLeetCodeProblemPage } from '../lib/compat.js';
+import { createStorage } from '../lib/storage.js';
+import { createService } from '../lib/service.js';
+import { safeError } from '../lib/errors.js';
+import { createGitHubSolutionExecutor } from '../sync/github-writer.js';
+
+export default defineBackground(() => {
+  const store = createStorage(platform.storage.local);
+  const service = createService({ store, alarms: platform.alarms, executeSync: createGitHubSolutionExecutor({ store }) });
+  platform.runtime.onMessage.addListener((message, sender, respond) => {
+    const fromLeetCode = ['CAPTURE_LEETCODE_SUBMISSION', 'LEETGITSYNC_DIAGNOSTIC'].includes(message?.type);
+    if (fromLeetCode ? !isLeetCodeProblemPage(sender) : !isExtensionPage(sender)) return false;
+    service.handle(message).then((data) => respond({ success: true, data }), (error) => respond({ success: false, error: safeError(error) }));
+    return true;
+  });
+  platform.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'github-device-auth') void service.tick().catch(() => {});
+    if (alarm.name === 'sync-queue') void service.processQueue().catch(() => {});
+  });
+  platform.runtime.onStartup.addListener(() => { void service.resume().catch(() => {}); });
+  platform.runtime.onInstalled.addListener(() => { void service.resume().catch(() => {}); });
+  void service.resume().catch(() => {});
+});

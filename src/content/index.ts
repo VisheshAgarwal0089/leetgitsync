@@ -1,7 +1,12 @@
-// Content script that runs on LeetCode problem pages
+// Content script that runs on all LeetCode pages
+// Stores profile data in chrome.storage.local so the background can read it directly.
 
 const LGS_PREFIX = '[LeetGitSync Content]';
+const STORAGE_KEY_PROFILE = 'lgs-leetcode-profile';
+const STORAGE_KEY_HISTORY = 'lgs-leetcode-history';
 console.log(`${LGS_PREFIX} Loaded in ISOLATED world.`);
+
+// ─── Profile Detection ────────────────────────────────────────────────────────
 
 function getCurrentLeetCodeProfile() {
   try {
@@ -32,7 +37,107 @@ function getCurrentLeetCodeProfile() {
   };
 }
 
-// 1. Inject the API Interceptor into the MAIN world
+// On every page load: detect profile and store it for the background script
+async function detectAndStoreProfile() {
+  console.log(`${LGS_PREFIX} detectAndStoreProfile called`);
+
+  // Try DOM first
+  let profile = getCurrentLeetCodeProfile();
+  console.log(`${LGS_PREFIX} DOM profile:`, profile);
+
+  // If DOM didn't give a username, try GraphQL
+  if (!profile.username) {
+    console.log(`${LGS_PREFIX} No DOM username, trying GraphQL...`);
+    profile = (await fetchLeetCodeProfileViaGraphQL()) || profile;
+    console.log(`${LGS_PREFIX} GraphQL result:`, profile);
+  }
+
+  // Store in chrome.storage.local so background can read it
+  try {
+    chrome.storage.local.set({ [STORAGE_KEY_PROFILE]: profile }, () => {
+      console.log(`${LGS_PREFIX} Successfully stored profile in chrome.storage.local:`, profile);
+    });
+  } catch (e) {
+    console.warn(`${LGS_PREFIX} Failed to store profile:`, e);
+  }
+
+  return profile;
+}
+
+async function fetchLeetCodeProfileViaGraphQL() {
+  try {
+    const response = await fetch('https://leetcode.com/graphql/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        query: `query { userStatus { username isSignedIn } }`,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    const username = data?.data?.userStatus?.username || null;
+    const isSignedIn = data?.data?.userStatus?.isSignedIn || false;
+    if (isSignedIn && username) {
+      return { username, displayName: username, connected: true, message: `LeetCode profile detected: ${username}` };
+    }
+  } catch (e) {
+    console.warn(`${LGS_PREFIX} GraphQL profile fetch failed:`, e);
+  }
+  return null;
+}
+
+// ─── Import History ───────────────────────────────────────────────────────────
+
+async function fetchAndStoreHistory() {
+  const profile = await fetchLeetCodeProfileViaGraphQL();
+  if (!profile?.username) {
+    chrome.storage.local.set({ [STORAGE_KEY_HISTORY]: [] });
+    return [];
+  }
+
+  try {
+    const response = await fetch('https://leetcode.com/graphql/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        query: `query userSolvedProblems($username: String!) {
+          matchedUser(username: $username) {
+            submitStatsGlobal {
+              acSubmissionNum {
+                difficulty
+                count
+                submissions
+              }
+            }
+          }
+        }`,
+        variables: { username: profile.username },
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    const stats = data?.data?.matchedUser?.submitStatsGlobal?.acSubmissionNum || [];
+    const history = stats.map((entry: any, index: number) => ({
+      id: `imported-${index}`,
+      title: entry.difficulty || 'Accepted problem',
+      slug: entry.difficulty?.toLowerCase() || 'accepted-problem',
+      difficulty: entry.difficulty === 'Hard' ? 'Hard' : entry.difficulty === 'Medium' ? 'Medium' : 'Easy',
+      tags: ['Imported'],
+      acceptanceRate: 0,
+      solvedAt: new Date().toISOString(),
+    }));
+    chrome.storage.local.set({ [STORAGE_KEY_HISTORY]: history });
+    console.log(`${LGS_PREFIX} Stored import history:`, history.length, 'entries');
+    return history;
+  } catch (e) {
+    console.warn(`${LGS_PREFIX} History fetch failed:`, e);
+    chrome.storage.local.set({ [STORAGE_KEY_HISTORY]: [] });
+    return [];
+  }
+}
+
+// ─── API Interceptor Injection (problem pages only) ──────────────────────────
+
 function injectInterceptor() {
   try {
     if ((window as Window & { __LGS_INJECTED__?: boolean }).__LGS_INJECTED__) {
@@ -56,7 +161,8 @@ function injectInterceptor() {
   }
 }
 
-// 2. Fetch Problem Details from LeetCode GraphQL API
+// ─── Fetch Problem Details ────────────────────────────────────────────────────
+
 async function fetchProblemDetails(problemSlug: string) {
   const query = `
     query questionData($titleSlug: String!) {
@@ -77,9 +183,8 @@ async function fetchProblemDetails(problemSlug: string) {
   try {
     const response = await fetch('https://leetcode.com/graphql/', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         query,
         variables: { titleSlug: problemSlug },
@@ -95,15 +200,36 @@ async function fetchProblemDetails(problemSlug: string) {
   }
 }
 
-// 3. Listen for messages from the injected script
+// ─── Message Listener (backup for direct queries) ─────────────────────────────
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'LEETCODE_GET_PROFILE') {
-    sendResponse({ success: true, data: getCurrentLeetCodeProfile() });
-    return true;
+    // Return cached profile from storage, or detect fresh
+    chrome.storage.local.get(STORAGE_KEY_PROFILE, (result) => {
+      const cached = result[STORAGE_KEY_PROFILE];
+      if (cached?.username) {
+        sendResponse({ success: true, data: cached });
+      } else {
+        // Detect fresh and store
+        detectAndStoreProfile().then((profile) => {
+          sendResponse({ success: true, data: profile });
+        });
+      }
+    });
+    return true; // keep channel open for async
+  }
+
+  if (message?.type === 'LEETCODE_IMPORT_HISTORY') {
+    fetchAndStoreHistory().then((history) => {
+      sendResponse({ success: true, data: history });
+    });
+    return true; // keep channel open for async
   }
 
   return false;
 });
+
+// ─── Listen for accepted submissions from inject script ───────────────────────
 
 window.addEventListener('message', async (event) => {
   if (event.source !== window || !event.data || event.data.source !== 'LEETGITSYNC_INJECT') {
@@ -114,7 +240,6 @@ window.addEventListener('message', async (event) => {
     console.log(`${LGS_PREFIX} Received accepted submission payload!`);
     const payload = event.data.payload;
 
-    // Extract problem slug from URL (e.g. https://leetcode.com/problems/two-sum/...)
     const match = window.location.pathname.match(/\/problems\/([^/]+)/);
     const problemSlug = match ? match[1] : null;
 
@@ -123,7 +248,6 @@ window.addEventListener('message', async (event) => {
       return;
     }
 
-    // Fetch full problem details
     const problemDetails = await fetchProblemDetails(problemSlug);
 
     if (!problemDetails) {
@@ -133,7 +257,6 @@ window.addEventListener('message', async (event) => {
 
     const topicTags = Array.isArray(problemDetails.topicTags) ? problemDetails.topicTags : [];
 
-    // Prepare final payload for background script
     const syncPayload = {
       type: 'LEETCODE_SYNC_REQUEST',
       data: {
@@ -154,11 +277,20 @@ window.addEventListener('message', async (event) => {
       },
     };
 
-    // Send to background service worker for GitHub syncing
     console.log(`${LGS_PREFIX} Sending sync request to background worker...`, syncPayload);
     chrome.runtime.sendMessage(syncPayload);
   }
 });
 
-// Start
-injectInterceptor();
+// ─── Startup ──────────────────────────────────────────────────────────────────
+
+// Always try to detect and store the profile on page load
+console.log(`${LGS_PREFIX} Starting profile detection on page load...`);
+detectAndStoreProfile().then((p) => {
+  console.log(`${LGS_PREFIX} Profile detection complete:`, p);
+});
+
+// Only inject the API interceptor on problem pages
+if (/\/problems\//.test(window.location.pathname)) {
+  injectInterceptor();
+}

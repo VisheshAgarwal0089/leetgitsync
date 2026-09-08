@@ -73,19 +73,25 @@ import type { DeviceFlowInit } from '@/lib/github';
 // ─── Message helpers ─────────────────────────────────────────────────────────
 
 function sendBg<T>(message: object): Promise<T> {
+  console.log('[LGS Debug] sendBg sending:', (message as any)?.type);
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response) => {
+      console.log('[LGS Debug] sendBg callback fired, lastError:', chrome.runtime.lastError?.message, 'response:', response);
       if (chrome.runtime.lastError) {
+        console.error('[LGS Debug] sendBg error:', chrome.runtime.lastError.message);
         reject(new Error(chrome.runtime.lastError.message));
         return;
       }
       if (!response) {
+        console.error('[LGS Debug] sendBg no response from background');
         reject(new Error('No response from background'));
         return;
       }
       if (response.success) {
+        console.log('[LGS Debug] sendBg success:', response.data);
         resolve(response.data as T);
       } else {
+        console.error('[LGS Debug] sendBg background error:', response.error);
         reject(new Error(response.error || 'Unknown error'));
       }
     });
@@ -342,10 +348,14 @@ export const useAppStore = create<AppState>()(
       },
 
       connectLeetCode: async () => {
+        console.log('[LGS Debug] connectLeetCode called from UI');
         set({ leetcodeAuth: { status: 'pending', profile: null, error: null } });
         try {
+          console.log('[LGS Debug] Sending LEETCODE_GET_PROFILE to background...');
           const profile = await sendBg<any>({ type: 'LEETCODE_GET_PROFILE' });
+          console.log('[LGS Debug] Background response:', profile);
           const connectedProfile = profile?.connected ? profile : null;
+          console.log('[LGS Debug] connectedProfile:', connectedProfile);
           set({ leetcodeAuth: { status: connectedProfile ? 'connected' : 'error', profile: connectedProfile, error: connectedProfile ? null : 'Unable to detect a LeetCode profile from the current tab.' } });
           if (connectedProfile) {
             set((state) => ({

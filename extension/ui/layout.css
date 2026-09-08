@@ -1,0 +1,21 @@
+body { margin: 0; }
+.popup { width: 390px; max-height: 590px; overflow-y: auto; padding: 20px; }
+.options { max-width: 620px; margin: 40px auto; padding: 24px; }
+.app { display: grid; gap: 20px; }
+.app h1 { font-size: 22px; font-weight: 650; letter-spacing: -.04em; }
+.app h2 { font-size: 15px; font-weight: 600; }
+.app p { font-size: 13px; line-height: 1.6; }
+.muted { color: hsl(var(--muted-foreground)); }
+.panel { padding: 18px; display: grid; gap: 14px; }
+.fields { display: grid; gap: 14px; }
+.fields label { display: grid; gap: 6px; font-size: 12px; font-weight: 500; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.code { font: bold 24px monospace; letter-spacing: .15em; user-select: all; }
+.notice { padding: 10px 12px; border: 1px solid hsl(var(--border)); border-radius: 8px; overflow-wrap: anywhere; }
+.error { color: #fca5a5; }
+.status { color: #86efac; }
+a { text-decoration: underline; text-underline-offset: 3px; }
+
+.diagnostic-list { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.diagnostic-list li { font-size: 11px; line-height: 1.45; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+.diagnostic-list strong { color: hsl(var(--foreground)); font-weight: 600; }
