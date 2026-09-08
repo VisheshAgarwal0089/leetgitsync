@@ -11,7 +11,14 @@ const patterns = [
 const extensions = new Set(['.js', '.jsx', '.mjs', '.json', '.html', '.css']);
 const files = [];
 async function walk(root) {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const entry of entries) {
     const item = path.join(root, entry.name);
     if (entry.isDirectory()) await walk(item);
     else if (extensions.has(path.extname(entry.name))) files.push(item);

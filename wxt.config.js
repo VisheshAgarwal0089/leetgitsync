@@ -7,7 +7,7 @@ export default defineConfig({
   zip: {
     includeSources: [
       'extension/**', 'public/**', 'wxt.config.js', 'package.json', 'package-lock.json',
-      'tailwind.config.js', 'postcss.config.cjs', 'eslint.config.js', 'README.md', 'PRIVACY.md', 'SOURCE_CODE_REVIEW.md',
+      'tailwind.config.js', 'postcss.config.cjs', 'eslint.config.js', 'README.md', 'PRIVACY.md',
     ],
   },
   vite: () => ({ plugins: [react()] }),
