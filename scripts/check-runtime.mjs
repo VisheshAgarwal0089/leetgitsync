@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 // Execute the actual production background bundle with WebExtension API doubles.
 // This verifies wiring, not a real browser installation or live OAuth approval.
-for (const target of ['chrome', 'edge', 'firefox']) {
+for (const target of ['brave', 'chrome', 'edge', 'firefox']) {
   const mainBundle = await readFile(`.output/${target}-mv3/content-scripts/leetcode-main.js`, 'utf8');
   const isolatedBundle = await readFile(`.output/${target}-mv3/content-scripts/leetcode.js`, 'utf8');
   assert.ok(mainBundle.includes('v2\\/'));

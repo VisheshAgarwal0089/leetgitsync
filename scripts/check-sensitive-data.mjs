@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const roots = ['extension', 'scripts', 'tests', '.output/chrome-mv3', '.output/edge-mv3', '.output/firefox-mv3'];
+const roots = ['extension', 'scripts', 'tests', '.output/brave-mv3', '.output/chrome-mv3', '.output/edge-mv3', '.output/firefox-mv3'];
 const patterns = [
   /github_pat_[A-Za-z0-9_]{20,}/,
   /gh[pousr]_[A-Za-z0-9]{20,}/,

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, access } from 'node:fs/promises';
 import path from 'node:path';
 
-for (const target of ['chrome', 'edge', 'firefox']) {
+for (const target of ['brave', 'chrome', 'edge', 'firefox']) {
   const root = path.resolve(`.output/${target}-mv3`);
   const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
   assert.equal(manifest.manifest_version, 3);

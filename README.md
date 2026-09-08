@@ -9,7 +9,7 @@ LeetGitSync is a browser extension that automatically saves accepted LeetCode so
 - Syncs solutions directly to a configured GitHub repository
 - Supports public and private repositories through GitHub Device Flow
 - Prevents duplicate captures and safely retries interrupted syncs
-- Works with Chrome, Edge, and Firefox
+- Works with Brave, Chrome, Edge, and Firefox
 - Stores configuration and queue state in browser extension storage
 
 ## Setup
@@ -35,11 +35,12 @@ Create production builds with:
 
 ```sh
 npm run build
+npm run build:brave
 npm run build:edge
 npm run build:firefox
 ```
 
-The unpacked Chromium extension is generated in `.output/chrome-mv3`.
+The unpacked Brave extension is generated in `.output/brave-mv3`. Open `brave://extensions`, enable **Developer mode**, choose **Load unpacked**, and select that folder.
 
 ## Privacy
 

@@ -23,7 +23,7 @@ function zipEntries(buffer) {
 const files = (await readdir('.output')).filter((file) => file.endsWith('.zip'));
 const packageData = JSON.parse(await readFile('package.json', 'utf8'));
 const artifactPrefix = `${packageData.name}-${packageData.version}`;
-for (const browser of ['chrome', 'edge', 'firefox']) {
+for (const browser of ['brave', 'chrome', 'edge', 'firefox']) {
   const matches = files.filter((file) => file === `${artifactPrefix}-${browser}.zip`);
   assert.equal(matches.length, 1, `Expected one ${browser} release ZIP`);
   const entries = zipEntries(await readFile(path.join('.output', matches[0])));
