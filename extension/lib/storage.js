@@ -69,7 +69,7 @@ function safeAuthError(value) {
 function normalizeFlow(value) {
   if (value == null) return null;
   const statuses = ['authorization_pending', 'slow_down', 'rate_limited', 'temporary_network_failure'];
-  if (typeof value.device_code !== 'string' || !value.device_code || value.device_code.length > 300 ||
+  if (typeof value.device_code !== 'string' || !/^[A-Za-z0-9_.-]{1,200}$/.test(value.device_code) ||
       typeof value.user_code !== 'string' || !/^[A-Z0-9-]{4,20}$/i.test(value.user_code) ||
       value.verification_uri !== 'https://github.com/login/device') return null;
   const expiresAt = Number(value.expiresAt);
@@ -234,7 +234,7 @@ export function createStorage(local, now = Date.now) {
       try {
         let auth = values[keys.auth];
         if (!auth?.token && typeof values.gh_token === 'string' && values.gh_token && values.gh_user) auth = { token: values.gh_token, user: values.gh_user };
-        if (auth && (typeof auth.token !== 'string' || !auth.token || !auth.user || typeof auth.user.login !== 'string')) {
+        if (auth && (typeof auth.token !== 'string' || !/^[A-Za-z0-9_.-]{8,512}$/.test(auth.token) || !auth.user || !Number.isSafeInteger(Number(auth.user.id)) || Number(auth.user.id) <= 0 || typeof auth.user.login !== 'string' || !/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/.test(auth.user.login))) {
           quarantine.push(quarantineEntry('auth', 0, 'invalid_record', at));
           auth = null;
         } else if (auth) auth = { token: auth.token, user: { id: auth.user.id, login: auth.user.login }, storedAt: Number(auth.storedAt) || at };

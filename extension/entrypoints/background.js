@@ -4,14 +4,18 @@ import { createStorage } from '../lib/storage.js';
 import { createService } from '../lib/service.js';
 import { safeError } from '../lib/errors.js';
 import { createGitHubSolutionExecutor } from '../sync/github-writer.js';
+import { validateRuntimeMessage } from '../lib/messages.js';
 
 export default defineBackground(() => {
   const store = createStorage(platform.storage.local);
-  const service = createService({ store, alarms: platform.alarms, executeSync: createGitHubSolutionExecutor({ store }) });
+  const diagnosticsEnabled = import.meta.env.DEV;
+  const service = createService({ store, alarms: platform.alarms, executeSync: createGitHubSolutionExecutor({ store }), diagnosticsEnabled });
   platform.runtime.onMessage.addListener((message, sender, respond) => {
     const fromLeetCode = ['CAPTURE_LEETCODE_SUBMISSION', 'LEETGITSYNC_DIAGNOSTIC'].includes(message?.type);
     if (fromLeetCode ? !isLeetCodeProblemPage(sender) : !isExtensionPage(sender)) return false;
-    service.handle(message).then((data) => respond({ success: true, data }), (error) => respond({ success: false, error: safeError(error) }));
+    const valid = validateRuntimeMessage(message, fromLeetCode ? 'leetcode' : 'extension', { diagnosticsEnabled });
+    if (!valid) { respond({ success: false, error: 'Invalid extension request.' }); return false; }
+    service.handle(valid).then((data) => respond({ success: true, data }), (error) => respond({ success: false, error: safeError(error) }));
     return true;
   });
   platform.alarms.onAlarm.addListener((alarm) => {

@@ -38,7 +38,7 @@ async function oauth(path, values) {
 
 export async function startDeviceFlow() {
   const data = await oauth('device/code', { scope: GITHUB_SCOPES });
-  if (typeof data.device_code !== 'string' || typeof data.user_code !== 'string' || data.verification_uri !== 'https://github.com/login/device' || !Number.isFinite(data.expires_in) || data.expires_in <= 0) {
+  if (typeof data.device_code !== 'string' || !/^[A-Za-z0-9_.-]{1,200}$/.test(data.device_code) || typeof data.user_code !== 'string' || !/^[A-Z0-9-]{4,20}$/i.test(data.user_code) || data.verification_uri !== 'https://github.com/login/device' || !Number.isFinite(data.expires_in) || data.expires_in <= 0) {
     throw new PublicError('GitHub returned an invalid authorization response. Please try again.', 'INVALID_DATA');
   }
   return {
@@ -71,7 +71,7 @@ export async function githubFetch(path, token, { notFoundMessage = 'GitHub resou
 
 export async function getAuthenticatedUser(token) {
   const user = await githubFetch('/user', token);
-  if (!user?.id || typeof user.login !== 'string') throw new PublicError('GitHub returned an invalid account response.', 'INVALID_DATA');
+  if (!Number.isSafeInteger(Number(user?.id)) || Number(user.id) <= 0 || typeof user.login !== 'string' || !/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/.test(user.login)) throw new PublicError('GitHub returned an invalid account response.', 'INVALID_DATA');
   return { id: user.id, login: user.login };
 }
 

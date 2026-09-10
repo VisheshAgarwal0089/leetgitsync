@@ -1,4 +1,5 @@
 import { encodeRepositoryPath } from './solution-path.js';
+import { validateConfig } from '../lib/config.js';
 
 export const README_START = '<!-- LEETGITSYNC:START -->';
 export const README_END = '<!-- LEETGITSYNC:END -->';
@@ -39,8 +40,15 @@ function strictEncode(value) {
 }
 
 export function buildGitHubFileUrl(target, path) {
-  if (!target?.owner || !target?.repository || !target?.branch || !path) readmeError();
-  return `https://github.com/${strictEncode(target.owner)}/${strictEncode(target.repository)}/blob/${strictEncode(target.branch)}/${encodeRepositoryPath(path)}`;
+  let safeTarget;
+  try { safeTarget = validateConfig(target); } catch { readmeError(); }
+  if (typeof path !== 'string' || path.length > 500 || !path.startsWith(`${safeTarget.directory}/`) || path.split('/').some((part) => !part || part === '.' || part === '..')) readmeError();
+  const url = `https://github.com/${strictEncode(safeTarget.owner)}/${strictEncode(safeTarget.repository)}/blob/${strictEncode(safeTarget.branch)}/${encodeRepositoryPath(path)}`;
+  try {
+    const parsed = new URL(url);
+    if (parsed.origin !== 'https://github.com' || parsed.username || parsed.password || parsed.search || parsed.hash) readmeError();
+  } catch { readmeError(); }
+  return url;
 }
 
 function count(text, marker) {

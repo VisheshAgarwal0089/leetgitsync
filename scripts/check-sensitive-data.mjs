@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const roots = ['extension', 'scripts', 'tests', '.output/brave-mv3', '.output/chrome-mv3', '.output/edge-mv3', '.output/firefox-mv3'];
+const roots = ['extension', 'scripts', 'tests', 'docs', 'public', '.output/brave-mv3', '.output/chrome-mv3', '.output/edge-mv3', '.output/firefox-mv3'];
 const patterns = [
   /github_pat_[A-Za-z0-9_]{20,}/,
   /gh[pousr]_[A-Za-z0-9]{20,}/,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+  /client_secret\s*[:=]\s*['"][^'"]+/i,
 ];
-const extensions = new Set(['.js', '.jsx', '.mjs', '.json', '.html', '.css']);
+const extensions = new Set(['.js', '.jsx', '.mjs', '.json', '.html', '.css', '.md', '.txt']);
 const files = [];
 async function walk(root) {
   let entries;
@@ -25,6 +26,7 @@ async function walk(root) {
   }
 }
 for (const root of roots) await walk(root);
+for (const file of ['README.md', 'PRIVACY.md', 'package.json', 'package-lock.json', 'wxt.config.js']) files.push(file);
 for (const file of files) {
   const text = await readFile(file, 'utf8');
   for (const pattern of patterns) assert.equal(pattern.test(text), false, `sensitive credential pattern found in ${file}`);

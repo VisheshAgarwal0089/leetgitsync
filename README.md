@@ -22,6 +22,8 @@ LeetGitSync is a browser extension that automatically saves accepted LeetCode so
 
 The target repository must contain an initial commit and a `README.md` file before it can be validated.
 
+See the [installation guide](docs/INSTALLATION.md) for browser-specific setup and the [troubleshooting guide](docs/TROUBLESHOOTING.md) for queue and authorization states.
+
 ## Local development
 
 LeetGitSync uses JavaScript, React, WXT, and Manifest V3. Node.js 22.12 or newer is recommended.
@@ -41,6 +43,14 @@ npm run build:firefox
 ```
 
 The unpacked Brave extension is generated in `.output/brave-mv3`. Open `brave://extensions`, enable **Developer mode**, choose **Load unpacked**, and select that folder.
+
+Run the complete production release pipeline with:
+
+```sh
+npm run release:verify
+```
+
+It runs linting, tests, the mocked scalability simulation, all four production packages, manifest/runtime/security/archive checks, the dependency audit, and checksum generation. It does not call real GitHub or LeetCode APIs.
 
 ## Privacy
 

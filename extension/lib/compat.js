@@ -1,10 +1,12 @@
 import { browser } from 'wxt/browser';
+import { validateUiResponse } from './messages.js';
 
 // WXT normalizes Promise-based WebExtension APIs across Chromium and Firefox.
 export const platform = browser;
 export async function request(type, data) {
   const response = await browser.runtime.sendMessage({ type, data });
-  if (!response?.success) throw new Error(response?.error || 'Extension unavailable. Reload the extension and try again.');
+  if (!validateUiResponse(response)) throw new Error('Extension returned an invalid response. Reload the extension and try again.');
+  if (!response.success) throw new Error(response.error || 'Extension unavailable. Reload the extension and try again.');
   return response.data;
 }
 export function isExtensionPage(sender) {

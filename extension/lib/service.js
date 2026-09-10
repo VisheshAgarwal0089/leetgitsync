@@ -23,11 +23,12 @@ function validationKey(config, auth) {
 
 export function createService({
   store, alarms, api = github, now = Date.now, random = Math.random, executeSync = null,
-  isOnline = () => globalThis.navigator?.onLine !== false,
+  isOnline = () => globalThis.navigator?.onLine !== false, diagnosticsEnabled = true,
 }) {
   let initialized;
   let migration = null;
   let chain = Promise.resolve();
+  const recordDiagnostic = diagnosticsEnabled ? (value) => appendDiagnostic(store, value, now) : async () => null;
 
   function serial(action) {
     const result = chain.then(async () => {
@@ -95,7 +96,7 @@ export function createService({
     await scheduleAuth(flow);
     try {
       const result = await api.pollForToken(flow.device_code);
-      if (typeof result.access_token === 'string' && result.access_token) {
+      if (typeof result.access_token === 'string' && /^[A-Za-z0-9_.-]{8,512}$/.test(result.access_token)) {
         const user = await api.getAuthenticatedUser(result.access_token);
         await store.set(keys.auth, { token: result.access_token, user, storedAt: now() });
         await store.remove(keys.error);
@@ -161,7 +162,7 @@ export function createService({
       config: await store.get(keys.config) || { ...emptyConfig },
       queue: queueSummary(queue, currentControl),
       capture: { count: captures.length, limit: STORAGE_LIMITS.captures, last: captures[0] ? { submissionId: captures[0].submissionId, problemTitle: captures[0].problemTitle, capturedAt: captures[0].capturedAt } : null },
-      diagnostics: Array.isArray(storedDiagnostics) ? storedDiagnostics : [],
+      diagnostics: diagnosticsEnabled && Array.isArray(storedDiagnostics) ? storedDiagnostics : [],
       storage: {
         schemaVersion: schema?.version || 0,
         migrationFailed: schema?.status === 'failed' || migration?.ok === false,
@@ -285,12 +286,12 @@ export function createService({
           }
         }
         case 'LEETGITSYNC_DIAGNOSTIC':
-          return { recorded: Boolean(await appendDiagnostic(store, message.data, now)) };
+          return { recorded: Boolean(await recordDiagnostic(message.data)) };
         case 'CAPTURE_LEETCODE_SUBMISSION': {
-          await appendDiagnostic(store, { stage: 'BACKGROUND_MESSAGE_RECEIVED', submissionId: message.data?.submissionId, slug: message.data?.problemSlug }, now);
+          await recordDiagnostic({ stage: 'BACKGROUND_MESSAGE_RECEIVED', submissionId: message.data?.submissionId, slug: message.data?.problemSlug });
           let record;
           try { record = validateRecord(message.data); } catch (error) {
-            await appendDiagnostic(store, { stage: 'DIAGNOSTIC_ERROR', submissionId: message.data?.submissionId, slug: message.data?.problemSlug, errorCode: 'CAPTURE_RECORD_INVALID' }, now);
+            await recordDiagnostic({ stage: 'DIAGNOSTIC_ERROR', submissionId: message.data?.submissionId, slug: message.data?.problemSlug, errorCode: 'CAPTURE_RECORD_INVALID' });
             throw error;
           }
           const [storedHistory, storedQueue, storedSeen] = await Promise.all([
@@ -300,7 +301,7 @@ export function createService({
           const queue = Array.isArray(storedQueue) ? storedQueue : [];
           const seen = Array.isArray(storedSeen) ? storedSeen : [];
           if (seen.includes(record.submissionId) || history.some((item) => item.submissionId === record.submissionId) || queue.some((job) => job.submissionId === record.submissionId)) {
-            await appendDiagnostic(store, { stage: 'CAPTURE_PERSISTED', submissionId: record.submissionId, slug: record.problemSlug }, now);
+            await recordDiagnostic({ stage: 'CAPTURE_PERSISTED', submissionId: record.submissionId, slug: record.problemSlug });
             return { captured: false, duplicate: true, count: history.length };
           }
           const next = [record, ...history].slice(0, STORAGE_LIMITS.captures);
@@ -319,8 +320,8 @@ export function createService({
             [keys.queue]: queued.queue,
             [keys.seen]: [record.submissionId, ...seen.filter((id) => id !== record.submissionId)].slice(0, STORAGE_LIMITS.seenSubmissions),
           });
-          await appendDiagnostic(store, { stage: 'CAPTURE_PERSISTED', submissionId: record.submissionId, slug: record.problemSlug }, now);
-          if (queued.added) await appendDiagnostic(store, { stage: 'QUEUE_JOB_CREATED', submissionId: record.submissionId, slug: record.problemSlug }, now);
+          await recordDiagnostic({ stage: 'CAPTURE_PERSISTED', submissionId: record.submissionId, slug: record.problemSlug });
+          if (queued.added) await recordDiagnostic({ stage: 'QUEUE_JOB_CREATED', submissionId: record.submissionId, slug: record.problemSlug });
           if (queued.added) {
             const block = await queueBlock(queued.queue);
             if (block) await setQueueControl(block.reason, block.until);

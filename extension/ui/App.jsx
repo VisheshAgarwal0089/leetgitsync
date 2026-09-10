@@ -78,7 +78,7 @@ export function App({ popup = false }) {
         {state.flow.status === 'temporary_network_failure' && <p className="error">Network unavailable. Authorization will retry automatically.</p>}
         <Button disabled={busy} variant="outline" onClick={() => run('CANCEL_AUTH')}>Cancel authorization</Button>
       </> : <>
-        <p className="muted">Authorize with GitHub Device Flow. Repository access supports public and private repositories.</p>
+        <p className="muted">Authorize with GitHub Device Flow. Repository access supports public and private repositories. Your access token stays in extension storage and is removed when you disconnect.</p>
         <Button disabled={busy || !state} onClick={() => run('START_AUTH')}>Connect GitHub</Button>
       </>}
       {state?.error && <p className="error" role="alert">{state.error}</p>}
@@ -93,7 +93,7 @@ export function App({ popup = false }) {
       {state?.queue?.latestFailed && <div className="notice error"><p>{state.queue.latestFailed.problemTitle}: {state.queue.latestFailed.error}</p><Button disabled={busy} variant="outline" onClick={() => run('RETRY_SYNC_JOB', { jobId: state.queue.latestFailed.id }, 'Failed job returned to the queue.')}>Retry failed job</Button></div>}
       {state?.queue?.lastSynced && <p className="status">Last synchronized: {state.queue.lastSynced.commitUrl ? <a href={state.queue.lastSynced.commitUrl} target="_blank" rel="noreferrer">{state.queue.lastSynced.problemTitle}</a> : state.queue.lastSynced.problemTitle}</p>}
     </Card>
-    <Card className="panel diagnostics">
+    {import.meta.env.DEV && <Card className="panel diagnostics">
       <h2>Live integration diagnostics</h2>
       <p className="muted">Reload the LeetCode problem tab after reloading the unpacked extension. Diagnostics contain status fields only and never include submitted code or credentials.</p>
       {state?.capture?.last && <p className="status">Captured {state.capture.last.problemTitle} (submission {state.capture.last.submissionId}).</p>}
@@ -108,7 +108,7 @@ export function App({ popup = false }) {
           {item.errorCode && <span> · {item.errorCode}</span>}
         </li>)}
       </ol>}
-    </Card>
+    </Card>}
     <Card className="panel">
       <h2>Repository configuration</h2>
       <form className="fields" onSubmit={(event) => { event.preventDefault(); saveConfiguration(); }}>
