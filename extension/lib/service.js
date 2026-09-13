@@ -6,12 +6,12 @@ import { validateRecord } from '../leetcode/record.js';
 import { appendDiagnostic } from './diagnostics.js';
 import {
   bindUnassignedJobs, calculateBackoff, createQueueProcessor, enqueue, MAX_FAILED_JOBS,
-  queueSummary, retryFailed,
+  queueSummary, retryFailed, contestEnd,
 } from '../sync/queue.js';
 
 const alarmName = 'github-device-auth';
 const syncAlarmName = 'sync-queue';
-const activeStates = new Set(['queued', 'syncing', 'retrying']);
+const activeStates = new Set(['queued', 'syncing', 'retrying', 'contest_hold']);
 
 function sameConfig(left, right) {
   return ['owner', 'repository', 'branch', 'directory'].every((field) => (left?.[field] || '') === (right?.[field] || ''));
@@ -324,8 +324,10 @@ export function createService({
           if (queued.added) await recordDiagnostic({ stage: 'QUEUE_JOB_CREATED', submissionId: record.submissionId, slug: record.problemSlug });
           if (queued.added) {
             const block = await queueBlock(queued.queue);
+            const heldEnd = queued.queue.filter((job) => job.status === 'contest_hold').map((job) => contestEnd(job.record)).filter((end) => Number.isFinite(end) && end > now()).sort((a, b) => a - b)[0];
+            if (heldEnd) await alarms.create(syncAlarmName, { when: heldEnd });
             if (block) await setQueueControl(block.reason, block.until);
-            else await alarms.create(syncAlarmName, { when: now() + 1000 });
+            else if (queued.queue.some((job) => ['queued', 'retrying'].includes(job.status))) await alarms.create(syncAlarmName, { when: now() + 1000 });
           }
           return { captured: true, duplicate: false, count: next.length };
         }

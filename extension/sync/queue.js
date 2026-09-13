@@ -1,4 +1,4 @@
-export const queueStates = ['queued', 'syncing', 'retrying', 'synced', 'failed'];
+export const queueStates = ['queued', 'syncing', 'retrying', 'synced', 'failed', 'contest_hold'];
 export const MAX_QUEUED_JOBS = 100;
 export const MAX_FAILED_JOBS = 50;
 export const MAX_COMPLETED_JOBS = 100;
@@ -6,7 +6,25 @@ export const MAX_QUEUE_JOBS = MAX_QUEUED_JOBS;
 export const MAX_ATTEMPTS = 6;
 export const MAX_BACKOFF_MS = 60 * 60 * 1000;
 
-const activeStates = new Set(['queued', 'syncing', 'retrying']);
+const activeStates = new Set(['queued', 'syncing', 'retrying', 'contest_hold']);
+
+
+export function contestEnd(record) {
+  return record?.contest?.endsAt ? Date.parse(record.contest.endsAt) : null;
+}
+
+export function contestHeld(record, now = Date.now()) {
+  return Boolean(record?.contest) && (!Number.isFinite(contestEnd(record)) || contestEnd(record) > now);
+}
+
+export function releaseContestHolds(queue, now = Date.now()) {
+  return queue.map((job) => {
+    if (job.status === 'synced' || job.status === 'failed') return job;
+    if (contestHeld(job.record, now)) return { ...job, status: 'contest_hold', nextAttemptAt: contestEnd(job.record) };
+    if (job.status === 'contest_hold') return { ...job, status: 'queued', nextAttemptAt: now, updatedAt: new Date(now).toISOString() };
+    return job;
+  });
+}
 
 export function repositoryKey(config) {
   if (!config?.owner || !config?.repository || !config?.branch) return null;
@@ -26,9 +44,9 @@ export function createQueueJob(record, config, now = Date.now()) {
     submissionId: record.submissionId,
     repository: repositoryKey(config),
     target: repositoryTarget(config),
-    status: 'queued',
+    status: contestHeld(record, now) ? 'contest_hold' : 'queued',
     attempts: 0,
-    nextAttemptAt: now,
+    nextAttemptAt: contestHeld(record, now) ? contestEnd(record) : now,
     createdAt: new Date(now).toISOString(),
     updatedAt: new Date(now).toISOString(),
     lastError: null,
@@ -125,6 +143,9 @@ export function queueSummary(queue, control = null) {
   const synced = [...completed].sort(completedOrder)[0];
   return {
     activeCount: active.length,
+    contestHeldCount: active.filter((job) => job.status === 'contest_hold').length,
+    contestUnknownCount: active.filter((job) => job.status === 'contest_hold' && !Number.isFinite(contestEnd(job.record))).length,
+    contestReleaseAt: active.filter((job) => job.status === 'contest_hold').map((job) => contestEnd(job.record)).filter(Number.isFinite).sort((a, b) => a - b)[0] ?? null,
     queuedCount: active.filter((job) => job.status === 'queued').length,
     syncingCount: active.filter((job) => job.status === 'syncing').length,
     retryingCount: active.filter((job) => job.status === 'retrying').length,
@@ -146,8 +167,13 @@ export function createQueueProcessor({
   async function run() {
     if (processing) return processing;
     processing = (async () => {
-      let queue = retainCompleted(recoverQueue(await load(), now()));
+      let queue = retainCompleted(releaseContestHolds(recoverQueue(await load(), now()), now()));
       await save(queue);
+      const scheduleHold = async () => {
+        const end = queue.filter((job) => job.status === 'contest_hold').map((job) => contestEnd(job.record)).filter((value) => Number.isFinite(value) && value > now()).sort((a, b) => a - b)[0];
+        if (end) await schedule(end);
+      };
+      await scheduleHold();
       if (!execute) return queue;
       while (true) {
         const time = now();
@@ -186,7 +212,7 @@ export function createQueueProcessor({
         }
         await save(queue);
       }
-      const nextTime = queue.filter((job) => job.status === 'retrying').map((job) => job.nextAttemptAt).filter(Number.isFinite).sort((a, b) => a - b)[0];
+      const nextTime = queue.filter((job) => ['retrying', 'contest_hold'].includes(job.status)).map((job) => job.nextAttemptAt).filter(Number.isFinite).sort((a, b) => a - b)[0];
       if (nextTime) await schedule(nextTime);
       return queue;
     })();

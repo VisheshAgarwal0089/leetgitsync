@@ -1,3 +1,4 @@
+import { parseProblemUrl, parseSubmitUrl } from './url.js';
 import { getProblemSlug, getSubmissionId, isResultRequest } from './protocol.js';
 
 const submissionListQuery = `query submissionList($offset: Int!, $limit: Int!, $lastKey: String, $questionSlug: String!) {
@@ -7,6 +8,12 @@ const submissionListQuery = `query submissionList($offset: Int!, $limit: Int!, $
 }`;
 const submissionCodeQuery = `query submissionCode($submissionId: Int!) {
   submissionDetails(submissionId: $submissionId) { code }
+}`;
+const contestDetailsQuery = `query contestSubmissionDetails($submissionId: Int!) {
+  submissionDetails(submissionId: $submissionId) {
+    statusDisplay timestamp code lang { name verboseName }
+    question { questionFrontendId titleSlug }
+  }
 }`;
 
 async function graphql(fetcher, query, variables) {
@@ -31,11 +38,26 @@ function accepted(item) {
   return Number(item?.status) === 10 || label === 'accepted' || label === 'ac';
 }
 
-export async function resolveObservedSubmission({ submissionId, problemSlug, fetcher = fetch, diagnose = () => {} }) {
+export async function resolveObservedSubmission({ submissionId, problemSlug, contestSlug = null, fetcher = fetch, diagnose = () => {} }) {
   diagnose({ stage: 'SUBMISSION_LOOKUP_STARTED', submissionId, slug: problemSlug });
-  const list = await graphql(fetcher, submissionListQuery, { offset: 0, limit: 20, lastKey: null, questionSlug: problemSlug });
+  let list;
+  try { list = await graphql(fetcher, submissionListQuery, { offset: 0, limit: 20, lastKey: null, questionSlug: problemSlug }); }
+  catch (error) { if (!contestSlug) throw error; }
   const submissions = list?.questionSubmissionList?.submissions;
   const item = Array.isArray(submissions) ? submissions.find((entry) => String(entry?.id ?? '') === String(submissionId)) : null;
+  // Active-contest submissions may not appear in the normal problem submission list.
+  // Use ID-specific details instead; never infer acceptance from resource timing alone.
+  if (!item && contestSlug) {
+    let detail;
+    try { detail = (await graphql(fetcher, contestDetailsQuery, { submissionId: Number(submissionId) }))?.submissionDetails; } catch { return { state: 'pending' }; }
+    const status = String(detail?.statusDisplay ?? '').trim().toLowerCase();
+    if (!status || ['pending', 'judging', 'started'].includes(status)) return { state: 'pending' };
+    if (!['accepted', 'ac'].includes(status)) return { state: 'rejected' };
+    const timestamp = submittedAt(detail.timestamp);
+    const language = detail.lang?.name ?? detail.lang?.verboseName;
+    if (detail.question?.titleSlug !== problemSlug || !timestamp || typeof detail.code !== 'string' || !detail.code.trim() || typeof language !== 'string' || !language.trim()) return { state: 'pending' };
+    return { state: 'accepted', candidate: { submissionId: String(submissionId), problemSlug, contestSlug, questionId: String(detail.question.questionFrontendId ?? ''), language, sourceCode: detail.code, submittedAt: timestamp } };
+  }
   if (!item || item.isPending) {
     diagnose({ stage: 'STATUS_NORMALIZED', submissionId, slug: problemSlug, status: item ? 'pending' : 'not-listed' });
     diagnose({ stage: 'SUBMISSION_LOOKUP_PENDING', submissionId, slug: problemSlug });
@@ -56,7 +78,7 @@ export async function resolveObservedSubmission({ submissionId, problemSlug, fet
   const missingFields = [];
   if (typeof sourceCode !== 'string' || !sourceCode.trim()) missingFields.push('sourceCode');
   if (!timestamp) missingFields.push('submittedAt');
-  if (!/^\d+$/.test(questionId)) missingFields.push('problemNumber');
+  if ((!contestSlug || questionId) && !/^\d+$/.test(questionId)) missingFields.push('problemNumber');
   if (typeof language !== 'string' || !language.trim()) missingFields.push('language');
   if (slug !== problemSlug) missingFields.push('problemSlug');
   if (missingFields.length) {
@@ -66,7 +88,7 @@ export async function resolveObservedSubmission({ submissionId, problemSlug, fet
   diagnose({ stage: 'SUBMISSION_CODE_FETCHED', submissionId, slug: problemSlug });
   return {
     state: 'accepted',
-    candidate: { submissionId: String(submissionId), questionId, problemSlug: slug, language, sourceCode, submittedAt: timestamp },
+    candidate: { ...(contestSlug ? { contestSlug } : {}), submissionId: String(submissionId), questionId, problemSlug: slug, language, sourceCode, submittedAt: timestamp },
   };
 }
 
@@ -74,18 +96,29 @@ export function installSubmissionFallback({ window, capture, fetcher = fetch, di
   const inFlight = new Map();
   const rerun = new Map();
   const finalized = new Set();
+  const observedContexts = new Map();
+  let latestSubmission = null;
   async function inspect(url) {
+    const submitPage = parseSubmitUrl(url);
+    if (submitPage) {
+      const current = parseProblemUrl(window.location.href);
+      latestSubmission = current?.problemSlug === submitPage.problemSlug ? current : submitPage;
+      return;
+    }
     if (!isResultRequest(url)) return;
     const submissionId = getSubmissionId({}, url);
-    const problemSlug = getProblemSlug(window.location.href);
+    const page = observedContexts.get(submissionId) ?? latestSubmission ?? parseProblemUrl(window.location.href);
+    const problemSlug = page?.problemSlug;
     if (!submissionId || !problemSlug || finalized.has(submissionId)) return;
+    observedContexts.set(submissionId, page);
+    if (observedContexts.size > 100) observedContexts.delete(observedContexts.keys().next().value);
     if (inFlight.has(submissionId)) { rerun.set(submissionId, url); return; }
     diagnose({ stage: 'RESULT_RESOURCE_DETECTED', submissionId, slug: problemSlug });
     diagnose({ stage: 'SUBMISSION_RESPONSE_DETECTED', submissionId, slug: problemSlug });
-    const operation = resolveObservedSubmission({ submissionId, problemSlug, fetcher, diagnose }).then(async (result) => {
+    const operation = resolveObservedSubmission({ submissionId, problemSlug, contestSlug: page.contestSlug, fetcher, diagnose }).then(async (result) => {
       if (result.state === 'accepted') {
-        finalized.add(submissionId);
         await capture(result.candidate);
+        finalized.add(submissionId);
       } else if (result.state === 'rejected' || result.state === 'invalid') finalized.add(submissionId);
     }).catch(() => {
       diagnose({ stage: 'DIAGNOSTIC_ERROR', submissionId, slug: problemSlug, errorCode: 'SUBMISSION_LOOKUP_FAILED' });
@@ -104,5 +137,5 @@ export function installSubmissionFallback({ window, capture, fetcher = fetch, di
   try { observer.observe({ type: 'resource' }); }
   catch { observer.observe({ entryTypes: ['resource'] }); }
   diagnose({ stage: 'FALLBACK_OBSERVER_READY', slug: getProblemSlug(window.location.href) });
-  return { inspect, stop() { observer.disconnect(); inFlight.clear(); rerun.clear(); } };
+  return { inspect, stop() { observer.disconnect(); inFlight.clear(); rerun.clear(); observedContexts.clear(); latestSubmission = null; } };
 }

@@ -3,7 +3,7 @@ import { normalizeDiagnostic } from './diagnostics.js';
 export const MAX_CAPTURE_MESSAGE_BYTES = 1_100_000;
 const MAX_CONTROL_MESSAGE_BYTES = 8_192;
 const uiTypes = new Set(['GET_STATE', 'START_AUTH', 'CANCEL_AUTH', 'DISCONNECT', 'VERIFY_AUTH', 'SAVE_CONFIG', 'VALIDATE_CONFIG', 'RETRY_SYNC_JOB']);
-const recordFields = new Set(['schemaVersion', 'platform', 'submissionId', 'problemNumber', 'problemTitle', 'problemSlug', 'problemUrl', 'language', 'sourceCode', 'topics', 'companies', 'submittedAt', 'capturedAt']);
+const recordFields = new Set(['schemaVersion', 'platform', 'submissionId', 'problemNumber', 'problemTitle', 'problemSlug', 'problemUrl', 'language', 'sourceCode', 'topics', 'companies', 'submittedAt', 'capturedAt', 'contest']);
 
 function plainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.prototype.toString.call(value) === '[object Object]';

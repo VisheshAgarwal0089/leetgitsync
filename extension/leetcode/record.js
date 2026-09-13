@@ -1,3 +1,4 @@
+import { validateContest } from './contest.js';
 import { PublicError } from '../lib/errors.js';
 
 const languageNames = new Map(Object.entries({
@@ -43,6 +44,7 @@ export function normalizeRecord(candidate, metadata, capturedAt = new Date().toI
   const captured = new Date(capturedAt);
   if (!Number.isFinite(submittedAt.getTime()) || !Number.isFinite(captured.getTime())) throw new PublicError('LeetCode submission timestamp is invalid.');
   return {
+    ...(candidate.contest !== undefined ? { contest: validateContest(candidate.contest) } : {}),
     schemaVersion: 1,
     platform: 'leetcode',
     submissionId,
@@ -61,6 +63,7 @@ export function normalizeRecord(candidate, metadata, capturedAt = new Date().toI
 
 export function validateRecord(record) {
   const normalized = normalizeRecord({
+    ...(record?.contest !== undefined ? { contest: record.contest } : {}),
     submissionId: record?.submissionId, questionId: record?.problemNumber, language: record?.language,
     sourceCode: record?.sourceCode, submittedAt: record?.submittedAt, problemSlug: record?.problemSlug,
   }, {

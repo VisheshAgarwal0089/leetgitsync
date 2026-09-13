@@ -1,3 +1,4 @@
+import { fetchContestTiming } from './contest.js';
 import { normalizeRecord } from './record.js';
 
 function missingFields(candidate, metadata) {
@@ -14,21 +15,26 @@ function missingFields(candidate, metadata) {
   return missing;
 }
 
-export function createCapturePipeline({ metadata, send, now = () => new Date().toISOString(), report = () => {}, diagnose = () => {} }) {
+export function createCapturePipeline({ metadata, send, now = () => new Date().toISOString(), report = () => {}, diagnose = () => {}, page = () => null, contestTiming = fetchContestTiming }) {
   const completed = new Set();
   const inFlight = new Map();
   async function capture(candidate) {
     const id = String(candidate?.submissionId ?? '');
     if (completed.has(id)) return { duplicate: true };
     if (inFlight.has(id)) return inFlight.get(id);
+    const context = page();
+    // A result may arrive after SPA navigation. Keep its observed origin; current
+    // contest pages still force a hold for candidates without contest context.
+    const contestSlug = context?.problemSlug === candidate.problemSlug ? context.contestSlug ?? candidate.contestSlug : candidate.contestSlug ?? context?.contestSlug;
     const operation = (async () => {
       let phase = 'metadata';
       try {
-        const details = await metadata.get(candidate.problemSlug);
+        const details = await metadata.get(candidate.problemSlug, contestSlug);
         const missing = missingFields(candidate, details);
         if (missing.length) diagnose({ stage: 'METADATA_FAILED', submissionId: id, slug: candidate?.problemSlug, missingFields: missing });
         else diagnose({ stage: 'METADATA_EXTRACTED', submissionId: id, slug: candidate?.problemSlug });
-        const record = normalizeRecord(candidate, details, now());
+        const contest = contestSlug ? await contestTiming(contestSlug) : null;
+        const record = normalizeRecord({ ...candidate, ...(contest ? { contest } : {}) }, details, now());
         phase = 'message';
         diagnose({ stage: 'CAPTURE_MESSAGE_SENT', submissionId: id, slug: record.problemSlug });
         const result = await send(record);

@@ -1,3 +1,4 @@
+import { PROBLEM_MATCHES } from '../leetcode/url.js';
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { CAPTURE_EVENT } from '../leetcode/protocol.js';
 import { installNetworkObserver } from '../leetcode/network-observer.js';
@@ -5,7 +6,7 @@ import { BRIDGE_EVENT, BRIDGE_READY_EVENT, DIAGNOSTIC_EVENT } from '../lib/diagn
 import { bridgeEnvelope, validBridgeNonce } from '../leetcode/bridge.js';
 
 export default defineContentScript({
-  matches: ['https://leetcode.com/problems/*'],
+  matches: PROBLEM_MATCHES,
   runAt: 'document_start',
   world: 'MAIN',
   main() {

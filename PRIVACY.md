@@ -41,7 +41,7 @@ The user chooses the GitHub account, repository, branch, and solutions directory
 
 - `storage` preserves authentication, configuration, bounded capture history, and synchronization jobs across restarts.
 - `alarms` resumes Device Flow polling and delayed synchronization retries when the service worker is suspended.
-- `https://leetcode.com/problems/*` detects accepted submissions and obtains problem metadata on LeetCode problem pages.
+- `https://leetcode.com/problems/*` and `https://leetcode.com/contest/*/problems/*` detect accepted submissions and obtain problem metadata on normal and contest problem pages. Contest code remains local until a verified contest end time; if that time is unavailable, publishing stays paused.
 - `https://github.com/*` performs GitHub Device Flow authorization.
 - `https://api.github.com/*` verifies and writes to the selected GitHub repository.
 

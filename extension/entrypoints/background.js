@@ -1,3 +1,4 @@
+import { parseProblemUrl } from '../leetcode/url.js';
 import { defineBackground } from 'wxt/utils/define-background';
 import { platform, isExtensionPage, isLeetCodeProblemPage } from '../lib/compat.js';
 import { createStorage } from '../lib/storage.js';
@@ -15,6 +16,12 @@ export default defineBackground(() => {
     if (fromLeetCode ? !isLeetCodeProblemPage(sender) : !isExtensionPage(sender)) return false;
     const valid = validateRuntimeMessage(message, fromLeetCode ? 'leetcode' : 'extension', { diagnosticsEnabled });
     if (!valid) { respond({ success: false, error: 'Invalid extension request.' }); return false; }
+    if (valid.type === 'CAPTURE_LEETCODE_SUBMISSION') {
+      const page = parseProblemUrl(sender.url ?? sender.tab?.url);
+      if (page?.contestSlug && !valid.data.contest) {
+        respond({ success: false, error: 'Invalid capture page context.' }); return false;
+      }
+    }
     service.handle(valid).then((data) => respond({ success: true, data }), (error) => respond({ success: false, error: safeError(error) }));
     return true;
   });

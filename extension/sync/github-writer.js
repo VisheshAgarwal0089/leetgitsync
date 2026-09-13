@@ -1,3 +1,4 @@
+import { contestHeld } from './queue.js';
 import { keys } from '../lib/storage.js';
 import { buildSolutionPath } from './solution-path.js';
 import { updateReadme } from './readme.js';
@@ -168,6 +169,7 @@ async function atomicAttempt(fetcher, target, record, token) {
 }
 
 export async function syncSolution({ job, token, fetcher = fetch, maxConflictRebuilds = MAX_CONFLICT_REBUILDS }) {
+  if (job?.status === 'contest_hold' || contestHeld(job?.record)) throw new SyncError('CONTEST_HOLD', 0);
   if (typeof token !== 'string' || !token) throw new SyncError('AUTH_REQUIRED', 0);
   const target = job?.target;
   if (!target?.owner || !target?.repository || !target?.branch || !target?.directory || !Number.isInteger(maxConflictRebuilds) || maxConflictRebuilds < 1 || maxConflictRebuilds > MAX_CONFLICT_REBUILDS) throw new SyncError('INVALID_DATA', 0);

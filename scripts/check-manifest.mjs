@@ -17,7 +17,7 @@ for (const target of ['brave', 'chrome', 'edge', 'firefox']) {
   assert.equal(manifest.action.default_popup, 'popup.html');
   assert.equal(manifest.options_ui.page, 'options.html');
   assert.equal(manifest.content_scripts.length, 2);
-  assert.ok(manifest.content_scripts.every((script) => JSON.stringify(script.matches) === JSON.stringify(['https://leetcode.com/problems/*'])));
+  for (const script of manifest.content_scripts) assert.deepEqual([...script.matches].sort(), ['https://leetcode.com/contest/*/problems/*', 'https://leetcode.com/problems/*']);
   const mainWorld = manifest.content_scripts.find((script) => script.world === 'MAIN');
   const isolatedWorld = manifest.content_scripts.find((script) => !script.world || script.world === 'ISOLATED');
   assert.equal(mainWorld?.run_at, 'document_start');

@@ -1,3 +1,4 @@
+import { parseProblemUrl, parseSubmitUrl } from './url.js';
 export const CAPTURE_EVENT = 'LEETGITSYNC_SUBMISSION_RESULT_V1';
 
 const acceptedLabels = new Set(['accepted', 'ac']);
@@ -34,15 +35,7 @@ export function getSubmissionId(payload, url = '') {
   return match?.[1] ?? null;
 }
 
-export function getProblemSlug(url) {
-  try {
-    const parsed = new URL(url, 'https://leetcode.com');
-    if (parsed.origin !== 'https://leetcode.com') return null;
-    return parsed.pathname.match(/^\/problems\/([a-z0-9-]+)(?:\/|$)/)?.[1] ?? null;
-  } catch {
-    return null;
-  }
-}
+export function getProblemSlug(url) { return (parseProblemUrl(url) ?? parseSubmitUrl(url))?.problemSlug ?? null; }
 
 export function parseSubmitBody(body) {
   if (typeof body !== 'string' || !body) return null;
@@ -60,7 +53,7 @@ export function parseSubmitBody(body) {
 }
 
 export function isSubmissionRequest(url, method) {
-  return String(method).toUpperCase() === 'POST' && /^https:\/\/leetcode\.com\/problems\/[a-z0-9-]+\/submit\/?(?:\?|$)/.test(String(url));
+  return String(method).toUpperCase() === 'POST' && Boolean(parseSubmitUrl(url));
 }
 
 export function isResultRequest(url) {

@@ -1,3 +1,4 @@
+import { PROBLEM_MATCHES, parseProblemUrl } from '../leetcode/url.js';
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { platform } from '../lib/compat.js';
 import { CAPTURE_EVENT, getProblemSlug } from '../leetcode/protocol.js';
@@ -9,7 +10,7 @@ import { BRIDGE_EVENT, BRIDGE_READY_EVENT, DIAGNOSTIC_EVENT, DIAGNOSTIC_MESSAGE 
 import { createBridgeNonce, validateBridgeEnvelope } from '../leetcode/bridge.js';
 
 export default defineContentScript({
-  matches: ['https://leetcode.com/problems/*'],
+  matches: PROBLEM_MATCHES,
   runAt: 'document_start',
   main() {
     const diagnosticsEnabled = import.meta.env.DEV;
@@ -18,6 +19,7 @@ export default defineContentScript({
     const metadata = createMetadataProvider({ document });
     const pipeline = createCapturePipeline({
       metadata,
+      page: () => parseProblemUrl(location.href),
       send: (record) => platform.runtime.sendMessage({ type: 'CAPTURE_LEETCODE_SUBMISSION', data: record }).then((response) => {
         if (!response?.success) throw new Error('The extension could not save this accepted submission.');
         return response.data;

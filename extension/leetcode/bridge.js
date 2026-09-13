@@ -18,7 +18,8 @@ export function bridgeEnvelope(nonce, sequence, payload) {
 
 export function validCandidateShape(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const allowed = new Set(['submissionId', 'questionId', 'problemSlug', 'language', 'sourceCode', 'submittedAt', 'acceptedAt']);
+  const allowed = new Set(['submissionId', 'questionId', 'problemSlug', 'language', 'sourceCode', 'submittedAt', 'acceptedAt', 'contestSlug']);
+  if (value.contestSlug !== undefined && (typeof value.contestSlug !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.contestSlug) || value.contestSlug.length > 200)) return false;
   if (!Object.keys(value).every((key) => allowed.has(key))) return false;
   if (!/^\d{1,30}$/.test(String(value.submissionId ?? '')) || !/^\d{1,30}$/.test(String(value.questionId ?? ''))) return false;
   if (typeof value.problemSlug !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.problemSlug) || value.problemSlug.length > 200) return false;

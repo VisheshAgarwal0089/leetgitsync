@@ -5,6 +5,7 @@ LeetGitSync is a browser extension that automatically saves accepted LeetCode so
 ## Features
 
 - Detects accepted submissions on LeetCode
+- Captures contest solutions locally and holds GitHub publishing until a verified contest end time
 - Preserves submitted source code and problem metadata
 - Syncs solutions directly to a configured GitHub repository
 - Supports public and private repositories through GitHub Device Flow

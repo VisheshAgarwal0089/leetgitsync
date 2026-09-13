@@ -1,3 +1,4 @@
+import { parseProblemUrl } from '../leetcode/url.js';
 import { browser } from 'wxt/browser';
 import { validateUiResponse } from './messages.js';
 
@@ -18,6 +19,6 @@ export function isLeetCodeProblemPage(sender) {
   if (sender.id !== browser.runtime.id || !sender.tab) return false;
   try {
     const url = new URL(sender.url ?? sender.tab?.url ?? sender.origin);
-    return url.origin === 'https://leetcode.com' && /^\/problems\/[a-z0-9-]+(?:\/|$)/.test(url.pathname);
+    return Boolean(parseProblemUrl(url.href));
   } catch { return false; }
 }

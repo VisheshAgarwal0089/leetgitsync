@@ -1,3 +1,4 @@
+import { parseProblemUrl, parseSubmitUrl } from './url.js';
 import {
   createAcceptedCandidate, getProblemSlug, getSubmissionId, getSubmissionStatus,
   isResultRequest, isSubmissionRequest, isTerminalResult, parseSubmitBody,
@@ -32,7 +33,8 @@ export function installNetworkObserver(window, onAccepted, now = () => new Date(
     }
     const parsed = parseSubmitBody(typeof body === 'string' ? body : '');
     const problemSlug = getProblemSlug(url);
-    return parsed && problemSlug ? { ...parsed, problemSlug, submittedAt: now() } : null;
+    const contestSlug = parseProblemUrl(window.location.href)?.contestSlug ?? parseSubmitUrl(url)?.contestSlug ?? null;
+    return parsed && problemSlug ? { ...parsed, problemSlug, ...(contestSlug ? { contestSlug } : {}), submittedAt: now() } : null;
   }
 
   const originalFetch = window.fetch;
@@ -74,7 +76,8 @@ export function installNetworkObserver(window, onAccepted, now = () => new Date(
             const id = getSubmissionId(data);
             const problemSlug = getProblemSlug(this.__lgsUrl);
             if (id && problemSlug) {
-              pending.set(id, { ...submit, problemSlug, submittedAt });
+              const contestSlug = parseProblemUrl(window.location.href)?.contestSlug ?? parseSubmitUrl(this.__lgsUrl)?.contestSlug ?? null;
+              pending.set(id, { ...submit, problemSlug, ...(contestSlug ? { contestSlug } : {}), submittedAt });
               onDiagnostic({ stage: 'SUBMIT_CONTEXT_STORED', submissionId: id, slug: problemSlug });
             }
           } else if (isResultRequest(this.__lgsUrl) && this.status >= 200 && this.status < 300) consumeResult(data, this.__lgsUrl);

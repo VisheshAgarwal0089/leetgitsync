@@ -140,6 +140,17 @@ function gitFixture({ readme = null, solution = null, conflicts = 0, failAt = nu
   return { fetcher, calls, blobBodies, treeBodies, commitBodies, patchBodies };
 }
 
+test('completed contest solution synchronizes flat code and README atomically using mocked GitHub', async () => {
+  const fixture = gitFixture();
+  const record = { ...baseRecord(), contest: { slug: 'weekly-contest-500', endsAt: '2020-01-01T00:00:00.000Z' } };
+  const queued = enqueue([], record, target, Date.now()).queue[0];
+  await syncSolution({ job: queued, token: 'fixture-token', fetcher: fixture.fetcher });
+  assert.equal(fixture.blobBodies[0].content, record.sourceCode);
+  assert.deepEqual(fixture.treeBodies[0].tree.map((entry) => entry.path), ['solutions/1-two-sum.java', 'README.md']);
+  assert.equal(fixture.commitBodies.length, 1);
+  assert.equal(fixture.patchBodies.length, 1);
+});
+
 test('atomic Git flow writes solution and README in one tree and advances the ref without force', async () => {
   const fixture = gitFixture();
   const queued = enqueue([], baseRecord(), target, time).queue[0];

@@ -2,7 +2,7 @@ import { emptyConfig, validateConfig } from './config.js';
 import { validateRecord } from '../leetcode/record.js';
 import { queueStates, repositoryKey, retainCompleted } from '../sync/queue.js';
 
-export const STORAGE_SCHEMA_VERSION = 2;
+export const STORAGE_SCHEMA_VERSION = 3;
 export const STORAGE_LIMITS = Object.freeze({ captures: 50, diagnostics: 50, quarantine: 50, seenSubmissions: 1000 });
 export const DIAGNOSTIC_STAGES = new Set([
   'CONTENT_SCRIPT_LOADED', 'PAGE_OBSERVER_READY', 'BRIDGE_CONNECTED', 'FETCH_INTERCEPTED', 'SUBMIT_CONTEXT_STORED',
@@ -93,6 +93,7 @@ function normalizeJob(value) {
   if (!value || typeof value !== 'object' || !queueStates.includes(value.status)) return null;
   let record;
   try { record = validateRecord(value.record); } catch { return null; }
+  if (value.status === 'contest_hold' && !record.contest) return null;
   if (String(value.id) !== record.submissionId || String(value.submissionId) !== record.submissionId) return null;
   let target = null;
   if (value.target) {
@@ -130,7 +131,7 @@ function normalizeJob(value) {
 
 function jobPriority(job) {
   if (job.status === 'failed') return 3;
-  if (['queued', 'syncing', 'retrying'].includes(job.status)) return 2;
+  if (['queued', 'syncing', 'retrying', 'contest_hold'].includes(job.status)) return 2;
   return 1;
 }
 

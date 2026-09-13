@@ -32,11 +32,19 @@ async function requestQuestion(slug, graphqlQuery, fetcher) {
   return payload?.data?.question ?? null;
 }
 
-export async function fetchProblemMetadata(slug, { fetcher = fetch, document = globalThis.document } = {}) {
+export async function fetchProblemMetadata(slug, { fetcher = fetch, document = globalThis.document, contestSlug = null } = {}) {
   let question;
   try { question = await requestQuestion(slug, query, fetcher); } catch { question = null; }
   if (!question) {
     try { question = await requestQuestion(slug, fallbackQuery, fetcher); } catch { question = null; }
+  }
+  if (typeof contestSlug === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(contestSlug) && contestSlug.length <= 200 && !question) {
+    try {
+      const response = await fetcher(`https://leetcode.com/contest/api/info/${contestSlug}/`, { credentials: 'include' });
+      const payload = response.ok ? await response.json() : null;
+      const item = payload?.contest?.title_slug === contestSlug && Array.isArray(payload.questions) ? payload.questions.find((entry) => entry.title_slug === slug) : null;
+      if (item) question = { questionFrontendId: /^\d+$/.test(String(item.display_id ?? '')) ? item.display_id : item.question_id, title: item.title, titleSlug: item.title_slug };
+    } catch { /* Missing contest metadata fails validation, never publishes incomplete data. */ }
   }
   const dom = document ? extractDomMetadata(document, slug) : {};
   return {
@@ -51,7 +59,11 @@ export async function fetchProblemMetadata(slug, { fetcher = fetch, document = g
 export function createMetadataProvider(options) {
   const cache = new Map();
   return {
-    get(slug) { if (!cache.has(slug)) cache.set(slug, fetchProblemMetadata(slug, options)); return cache.get(slug); },
+    get(slug, contestSlug = null) {
+      const key = `${contestSlug ?? ''}:${slug}`;
+      if (!cache.has(key)) cache.set(key, fetchProblemMetadata(slug, { ...options, contestSlug }));
+      return cache.get(key);
+    },
     navigation() { cache.clear(); },
   };
 }

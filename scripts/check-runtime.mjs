@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 // Execute the actual production background bundle with WebExtension API doubles.
 // This verifies wiring, not a real browser installation or live OAuth approval.
 for (const target of ['brave', 'chrome', 'edge', 'firefox']) {
+  const manifest = JSON.parse(await readFile(`.output/${target}-mv3/manifest.json`, 'utf8'));
+  for (const script of manifest.content_scripts) assert.deepEqual([...script.matches].sort(), ['https://leetcode.com/contest/*/problems/*', 'https://leetcode.com/problems/*']);
   const mainBundle = await readFile(`.output/${target}-mv3/content-scripts/leetcode-main.js`, 'utf8');
   const isolatedBundle = await readFile(`.output/${target}-mv3/content-scripts/leetcode.js`, 'utf8');
   assert.ok(mainBundle.includes('v2\\/'));
@@ -57,7 +59,12 @@ for (const target of ['brave', 'chrome', 'edge', 'firefox']) {
   assert.equal(productionState.data.diagnostics.length, 0);
   assert.equal((await send({ type: 'CAPTURE_LEETCODE_SUBMISSION', data: capture }, contentSender)).data.captured, true);
   assert.equal((await send({ type: 'CAPTURE_LEETCODE_SUBMISSION', data: capture }, contentSender)).data.duplicate, true);
-  assert.equal(await send({ type: 'CAPTURE_LEETCODE_SUBMISSION', data: capture }, { ...contentSender, url: 'https://leetcode.com/contest/' }), null);
+  assert.equal((await send({ type: 'CAPTURE_LEETCODE_SUBMISSION', data: capture }, { ...contentSender, url: 'https://leetcode.com/contest/weekly-contest-1/problems/two-sum/', tab: { id: 1 } })).success, false);
+  const held = { ...capture, submissionId: '123456790', contest: { slug: 'weekly-contest-1', endsAt: null } };
+  const contestSender = { ...contentSender, url: 'https://leetcode.com/contest/weekly-contest-1/problems/two-sum/' };
+  assert.equal((await send({ type: 'CAPTURE_LEETCODE_SUBMISSION', data: held }, contestSender)).data.captured, true);
+  assert.equal((await send({ type: 'GET_STATE' })).data.queue.contestHeldCount, 1);
+  assert.ok(mainBundle.includes('contest')); assert.ok(isolatedBundle.includes('contest/api/info'));
   assert.equal((await send({ type: 'DISCONNECT' })).success, true);
   assert.equal(data['githubsync-auth'], undefined);
   console.log(`${target}: production worker messages, capture queue, settings, token isolation and disconnect verified with API doubles`);
